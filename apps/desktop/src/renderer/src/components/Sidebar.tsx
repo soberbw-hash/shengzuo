@@ -1,6 +1,4 @@
-import { ChevronDown } from "lucide-react";
-import { useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 import { cn } from "@ai-voice-studio/ui";
 
@@ -44,12 +42,6 @@ const RouteLink = ({
 };
 
 export const Sidebar = () => {
-  const location = useLocation();
-  const isToolRoute = toolRoutes.some(
-    (route) => route.path === location.pathname,
-  );
-  const [toolsOpen, setToolsOpen] = useState(isToolRoute);
-
   return (
     <aside className="sidebar">
       <nav className="space-y-1" aria-label="主导航">
@@ -57,25 +49,12 @@ export const Sidebar = () => {
           <RouteLink key={route.path} route={route} />
         ))}
 
-        <button
-          className="nav-disclosure"
-          aria-expanded={toolsOpen}
-          aria-controls="secondary-tools"
-          onClick={() => setToolsOpen((open) => !open)}
-        >
-          <span>更多功能</span>
-          <ChevronDown
-            className={cn("h-4 w-4", toolsOpen && "rotate-180")}
-            aria-hidden="true"
-          />
-        </button>
-        {toolsOpen ? (
-          <div id="secondary-tools" className="space-y-1">
-            {toolRoutes.map((route) => (
-              <RouteLink key={route.path} route={route} compact />
-            ))}
-          </div>
-        ) : null}
+        <div className="nav-section-label">更多功能</div>
+        <div className="space-y-1">
+          {toolRoutes.map((route) => (
+            <RouteLink key={route.path} route={route} compact />
+          ))}
+        </div>
       </nav>
 
       <div className="mt-auto space-y-1">

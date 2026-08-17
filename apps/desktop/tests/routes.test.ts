@@ -16,7 +16,7 @@ void test("desktop navigation leads with the creator's four core destinations", 
   );
 });
 
-void test("advanced tools remain available without crowding the main navigation", () => {
+void test("secondary tools stay visible in the expanded navigation", () => {
   assert.deepEqual(
     toolRoutes.map((route) => route.label),
     ["字幕配音", "多人对话", "本地引擎"],

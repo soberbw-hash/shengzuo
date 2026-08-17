@@ -34,6 +34,7 @@ import {
 } from "./modelLibrary";
 import { ProjectStore } from "./projectStore";
 import { checkAndRepairSystem } from "./systemCheck";
+import { checkForAppUpdates, RELEASES_PAGE_URL } from "./updateChecker";
 import { VoiceStore } from "./voiceStore";
 
 const invalidFileNameCharacters = new Set('<>:"/\\|?*');
@@ -155,6 +156,13 @@ export const registerIpcHandlers = (): (() => void) => {
       `检查完成：${report.attentionCount} 项需处理，${report.repairedCount} 项已修复`,
     );
     return report;
+  });
+  ipcMain.handle(IPC_CHANNELS.app.checkForUpdates, () =>
+    checkForAppUpdates(app.getVersion()),
+  );
+  ipcMain.handle(IPC_CHANNELS.app.openUpdatesPage, async () => {
+    await shell.openExternal(RELEASES_PAGE_URL);
+    return true;
   });
   ipcMain.handle(IPC_CHANNELS.app.exportDiagnostics, async () => {
     const result = await dialog.showSaveDialog({
@@ -372,6 +380,8 @@ export const registerIpcHandlers = (): (() => void) => {
     ipcMain.removeHandler(IPC_CHANNELS.app.openModelsFolder);
     ipcMain.removeHandler(IPC_CHANNELS.app.changeModelsPath);
     ipcMain.removeHandler(IPC_CHANNELS.app.checkAndRepair);
+    ipcMain.removeHandler(IPC_CHANNELS.app.checkForUpdates);
+    ipcMain.removeHandler(IPC_CHANNELS.app.openUpdatesPage);
     ipcMain.removeHandler(IPC_CHANNELS.app.exportDiagnostics);
     ipcMain.removeHandler(IPC_CHANNELS.window.minimize);
     ipcMain.removeHandler(IPC_CHANNELS.window.toggleMaximize);

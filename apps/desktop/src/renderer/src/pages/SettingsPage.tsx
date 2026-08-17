@@ -4,6 +4,7 @@ import {
   ChevronRight,
   CircleHelp,
   Cpu,
+  Download,
   FileArchive,
   FileAudio,
   FolderOpen,
@@ -18,6 +19,7 @@ import {
   EXPORT_NAMING_TOKENS,
   isExportNamingTemplate,
   renderExportFileStem,
+  type AppUpdateCheckResult,
   type AppRuntimeInfo,
   type SystemCheckItemStatus,
   type SystemCheckResult,
@@ -88,6 +90,9 @@ export const SettingsPage = () => {
   const captureNaming =
     new URLSearchParams(window.location.search).get("naming") ??
     new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("naming");
+  const captureUpdate =
+    new URLSearchParams(window.location.search).get("update") ??
+    new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("update");
   const [showLicenses, setShowLicenses] = useState(false);
   const [showNaming, setShowNaming] = useState(captureNaming === "1");
   const [modelsPath, setModelsPath] = useState("正在读取…");
@@ -102,6 +107,11 @@ export const SettingsPage = () => {
   const [movingModels, setMovingModels] = useState(false);
   const [savingNaming, setSavingNaming] = useState(false);
   const [checkingSystem, setCheckingSystem] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updateCheck, setUpdateCheck] = useState<AppUpdateCheckResult | null>(
+    null,
+  );
+  const [showUpdateCheck, setShowUpdateCheck] = useState(false);
   const [systemCheck, setSystemCheck] = useState<SystemCheckResult | null>(
     null,
   );
@@ -119,7 +129,13 @@ export const SettingsPage = () => {
       setNamingTemplate(naming.template);
       setNamingDraft(naming.template);
     });
-  }, []);
+    if (captureUpdate === "1") {
+      void desktopApi.app.checkForUpdates().then((result) => {
+        setUpdateCheck(result);
+        setShowUpdateCheck(true);
+      });
+    }
+  }, [captureUpdate]);
 
   const namingPreview = `${renderExportFileStem(namingDraft, {
     title: "产品介绍",
@@ -200,6 +216,33 @@ export const SettingsPage = () => {
       });
     } finally {
       setCheckingSystem(false);
+    }
+  };
+
+  const checkForUpdates = async () => {
+    if (checkingUpdates) return;
+    setCheckingUpdates(true);
+    try {
+      const result = await desktopApi.app.checkForUpdates();
+      setUpdateCheck(result);
+      setShowUpdateCheck(true);
+      pushToast({
+        title:
+          result.status === "available"
+            ? `发现新版本 ${result.latestVersion}`
+            : "当前已是最新版本",
+        description: `当前版本 ${result.currentVersion}`,
+        tone: result.status === "available" ? "success" : "info",
+      });
+    } catch (error) {
+      pushToast({
+        title: "检查更新失败",
+        description:
+          error instanceof Error ? error.message : "请确认网络后重试。",
+        tone: "danger",
+      });
+    } finally {
+      setCheckingUpdates(false);
     }
   };
 
@@ -328,6 +371,23 @@ export const SettingsPage = () => {
           <SectionHeading title="帮助与维护" />
           <div className="mt-4 divide-y divide-[#e7eef5]">
             <SettingRow
+              icon={<Download className="h-4 w-4" />}
+              title="检查更新"
+              description={`当前版本 ${runtimeInfo?.version ?? "正在读取…"}`}
+            >
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={checkingUpdates}
+                onClick={() => void checkForUpdates()}
+              >
+                <RefreshCw
+                  className={`h-3.5 w-3.5${checkingUpdates ? " animate-spin" : ""}`}
+                />
+                {checkingUpdates ? "正在检查…" : "检查更新"}
+              </Button>
+            </SettingRow>
+            <SettingRow
               icon={<CircleHelp className="h-4 w-4" />}
               title="使用帮助"
             >
@@ -357,7 +417,8 @@ export const SettingsPage = () => {
             </SettingRow>
             <SettingRow
               icon={<FileArchive className="h-4 w-4" />}
-              title="开源许可"
+              title="软件许可"
+              description="声作本体保留全部权利；第三方组件遵循各自许可。"
             >
               <Button
                 size="sm"
@@ -493,16 +554,66 @@ export const SettingsPage = () => {
       </Modal>
 
       <Modal
+        open={showUpdateCheck}
+        title={
+          updateCheck?.status === "available"
+            ? `发现新版本 ${updateCheck.latestVersion}`
+            : "当前已是最新版本"
+        }
+        description={
+          updateCheck
+            ? `当前版本 ${updateCheck.currentVersion} · 最新版本 ${updateCheck.latestVersion}`
+            : "正在读取版本信息。"
+        }
+        onClose={() => setShowUpdateCheck(false)}
+        footer={
+          <>
+            {updateCheck?.status === "available" ? (
+              <Button
+                variant="secondary"
+                onClick={() => setShowUpdateCheck(false)}
+              >
+                稍后再说
+              </Button>
+            ) : null}
+            <Button
+              onClick={() => {
+                if (updateCheck?.status === "available") {
+                  void desktopApi.app.openUpdatesPage();
+                }
+                setShowUpdateCheck(false);
+              }}
+            >
+              {updateCheck?.status === "available" ? "打开下载页" : "知道了"}
+            </Button>
+          </>
+        }
+      >
+        <div className="rounded-[14px] border border-[#dce9f5] bg-gradient-to-br from-[#f6fbff] to-[#f2fbf8] p-4">
+          <strong className="block text-[14px] text-[#29455f]">
+            {updateCheck?.releaseName ?? "声作"}
+          </strong>
+          <p className="mt-2 text-[12px] leading-6 text-[#60758b]">
+            {updateCheck?.status === "available"
+              ? "下载新的便携版并完整解压即可。模型库和个人项目保存在独立位置，不需要重新下载模型。"
+              : "暂时不需要下载新版本。以后可以随时在设置中再次检查。"}
+          </p>
+        </div>
+      </Modal>
+
+      <Modal
         open={showLicenses}
-        title="开源许可"
-        description="本软件使用的开源组件。"
+        title="软件许可"
+        description="声作本体与第三方组件分别适用不同许可。"
         onClose={() => setShowLicenses(false)}
         footer={<Button onClick={() => setShowLicenses(false)}>知道了</Button>}
       >
         <div className="space-y-2 text-[13px] text-[#607188]">
           {[
+            "声作本体 · 保留全部权利，未经书面许可不得复制、修改、分发或商用",
             "VoxCPM2 · Apache License 2.0",
             "Fun-CosyVoice3 · Apache License 2.0",
+            "IndexTTS-2.5 · bilibili Model Use License",
             "Electron、React、Vite、Tailwind CSS · MIT License",
             "Lucide · ISC License",
           ].map((item) => (

@@ -15,6 +15,8 @@ const desktopApi: DesktopApi = {
     changeModelsPath: () =>
       ipcRenderer.invoke(IPC_CHANNELS.app.changeModelsPath),
     checkAndRepair: () => ipcRenderer.invoke(IPC_CHANNELS.app.checkAndRepair),
+    checkForUpdates: () => ipcRenderer.invoke(IPC_CHANNELS.app.checkForUpdates),
+    openUpdatesPage: () => ipcRenderer.invoke(IPC_CHANNELS.app.openUpdatesPage),
     exportDiagnostics: () =>
       ipcRenderer.invoke(IPC_CHANNELS.app.exportDiagnostics),
   },

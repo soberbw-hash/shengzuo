@@ -1,0 +1,48 @@
+声作专有软件许可
+ShengZuo Proprietary Software License
+
+Copyright (c) 2026 soberbw-hash. All Rights Reserved.
+
+1. 权利保留
+
+除本文件明确授予的权利外，声作的软件源代码、界面设计、品牌标识、文档、构建脚本及其衍生内容的全部权利均由版权所有者保留。
+
+2. 源码公开不构成开源授权
+
+本仓库公开仅用于查看、评估、安全审阅、问题反馈和获取版权所有者发布的正式版本。公开访问、查看仓库或通过 GitHub 提供的功能建立分支，不代表获得复制、修改、合并、发布、分发、再许可、销售、出租、托管、部署、商业使用或制作衍生作品的许可。
+
+3. 禁止行为
+
+未经版权所有者事先书面许可，任何个人或组织不得：
+
+- 复制、修改、翻译、反向整合、发布或分发声作本体的全部或部分内容；
+- 将声作本体或其衍生作品用于商业产品、收费服务、内部生产服务或对外托管服务；
+- 删除或更改版权、品牌、归属或许可声明；
+- 使用声作的名称、图标、界面或其他品牌元素使他人误认为存在授权、合作或认可关系；
+- 将本仓库内容作为代码数据集、模型训练材料或自动生成衍生软件的输入，但适用法律明确允许且不得通过合同限制的情形除外。
+
+4. 第三方内容
+
+本仓库引用或安装的第三方代码、模型、权重、字体、图标及其他组件不受本许可重新授权，仍分别适用其原始许可证、使用条款和限制。使用者必须自行遵守这些第三方条款。
+
+5. 正式发布文件
+
+版权所有者发布的二进制包仅授予接收者为合法声音创作目的在其控制的 Windows 设备上运行该副本的有限、不可转让、不可再许可许可。该许可不包含重新分发、转售、出租、对外托管或提供派生版本的权利。
+
+6. 无担保
+
+在适用法律允许的最大范围内，本软件按“现状”提供，不作任何明示或默示担保。版权所有者不对因使用或无法使用本软件产生的任何损失承担责任。
+
+7. 书面许可
+
+需要复制、修改、分发、商业部署、合作开发或其他额外权利时，必须事先取得版权所有者单独出具的书面许可。
+
+---
+
+No license is granted to copy, modify, publish, distribute, sublicense, sell,
+host, deploy as a service, commercially use, or create derivative works from
+the ShengZuo application, source code, user interface, branding,
+documentation, or build scripts, except with prior written permission from the
+copyright holder. Public availability of this repository does not make the
+ShengZuo application open source. Third-party components remain governed by
+their respective licenses and terms.
