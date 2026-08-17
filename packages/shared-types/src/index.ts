@@ -1,5 +1,5 @@
 export const APP_NAME = "声作";
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";
 export const APP_DESCRIPTOR = "本地声音创作工作台";
 export const APP_TAGLINE = "让自己的声音，成为作品。";
 
@@ -499,6 +499,17 @@ export interface DiagnosticsExportResult {
   filePath?: string;
 }
 
+export interface AppUpdateCheckResult {
+  checkedAt: string;
+  status: "up-to-date" | "available";
+  currentVersion: string;
+  latestVersion: string;
+  releaseName: string;
+  releaseUrl: string;
+  downloadUrl?: string;
+  publishedAt?: string;
+}
+
 export type SystemCheckItemStatus = "ok" | "repaired" | "notice" | "attention";
 
 export interface SystemCheckItem {
@@ -567,6 +578,8 @@ export interface DesktopApi {
     openModelsFolder: () => Promise<boolean>;
     changeModelsPath: () => Promise<ModelLibraryChangeResult>;
     checkAndRepair: () => Promise<SystemCheckResult>;
+    checkForUpdates: () => Promise<AppUpdateCheckResult>;
+    openUpdatesPage: () => Promise<boolean>;
     exportDiagnostics: () => Promise<DiagnosticsExportResult>;
   };
   window: {
@@ -626,6 +639,8 @@ export const IPC_CHANNELS = {
     openModelsFolder: "app:open-models-folder",
     changeModelsPath: "app:change-models-path",
     checkAndRepair: "app:check-and-repair",
+    checkForUpdates: "app:check-for-updates",
+    openUpdatesPage: "app:open-updates-page",
     exportDiagnostics: "app:export-diagnostics",
   },
   window: {

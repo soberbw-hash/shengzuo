@@ -95,6 +95,14 @@ const standardScenarios = [
     requireVisibleText: "保存规则",
   },
   {
+    name: "07c-check-update",
+    route: "/settings",
+    query: "state=ready&update=1",
+    width: 1280,
+    height: 800,
+    requireVisibleText: "知道了",
+  },
+  {
     name: "08-help",
     route: "/help",
     query: "state=ready",

@@ -204,6 +204,13 @@ void app
       "document.body.innerText.includes('文件命名规则已保存')",
       "保存导出命名规则",
     );
+    await clickByText(window, "检查更新");
+    await waitFor(
+      window,
+      "document.body.innerText.includes('当前已是最新版本') && document.body.innerText.includes('最新版本 1.0.1')",
+      "检查更新结果",
+    );
+    await clickByText(window, "知道了");
     await clickByText(window, "一键检查修复");
     await waitFor(
       window,
@@ -216,7 +223,7 @@ void app
       throw new Error(`界面控制台错误：${consoleErrors.join(" | ")}`);
     }
     console.log(
-      "Interaction smoke passed: compact-layout/import/edit/delete/save/generate/cancel/recovery-store/export/export-naming/download-pause-resume/audio-drop/system-check.",
+      "Interaction smoke passed: compact-layout/import/edit/delete/save/generate/cancel/recovery-store/export/export-naming/download-pause-resume/audio-drop/update-check/system-check.",
     );
     window.destroy();
     app.quit();

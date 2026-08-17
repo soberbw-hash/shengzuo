@@ -245,6 +245,16 @@ const browserApi: DesktopApi = {
           })),
         ],
       }),
+    checkForUpdates: () =>
+      Promise.resolve({
+        checkedAt: new Date().toISOString(),
+        status: "up-to-date",
+        currentVersion: APP_VERSION,
+        latestVersion: APP_VERSION,
+        releaseName: `声作 ${APP_VERSION}`,
+        releaseUrl: "https://github.com/soberbw-hash/shengzuo/releases/latest",
+      }),
+    openUpdatesPage: () => Promise.resolve(true),
     exportDiagnostics: () => Promise.resolve({ canceled: true }),
   },
   window: {

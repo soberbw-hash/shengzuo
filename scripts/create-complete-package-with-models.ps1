@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
   [string]$ReleaseDate = (Get-Date -Format 'yyyy-MM-dd'),
   [string]$ModelLibraryRoot = (Join-Path $env:LOCALAPPDATA '声作模型库')
@@ -107,45 +107,8 @@ $manifest = [ordered]@{
   [Text.UTF8Encoding]::new($false)
 )
 
-$installerPowerShell = @'
-$ErrorActionPreference = 'Stop'
-try {
-  $source = Join-Path $env:SHENGZUO_PACKAGE_ROOT '模型库'
-  $target = Join-Path $env:LOCALAPPDATA '声作模型库'
-  if (-not (Test-Path -LiteralPath (Join-Path $source 'model-library.json'))) {
-    Write-Host '没有找到完整模型库。'
-    exit 2
-  }
-  Write-Host '正在复制三款模型到固定模型库，请勿关闭窗口……'
-  & robocopy.exe $source $target /E /Z /R:2 /W:2 /NFL /NDL /NJH /NJS /NP /XF model-library.json 模型库清单.json
-  if ($LASTEXITCODE -ge 8) {
-    throw "ROBOCOPY_$LASTEXITCODE"
-  }
-  Write-Host '模型库已准备完成。程序升级不会删除这些文件。'
-  exit 0
-} catch {
-  Write-Host '模型库复制失败，请检查磁盘空间后重试。'
-  exit 3
-}
-'@
-$encodedInstaller = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($installerPowerShell))
-$installer = @"
-@echo off
-setlocal
-set "SHENGZUO_PACKAGE_ROOT=%~dp0"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encodedInstaller
-set "INSTALL_EXIT=%ERRORLEVEL%"
-pause
-exit /b %INSTALL_EXIT%
-"@
-[IO.File]::WriteAllText(
-  (Join-Path $stagingRoot '安装到本机模型库.cmd'),
-  $installer,
-  [Text.Encoding]::ASCII
-)
-
 $completeUsage = @'
-声作 1.0.0 · 含三模型完整便携版
+声作 1.0.1 · 含三模型完整便携版
 ================================
 
 打开方法
@@ -169,10 +132,8 @@ $completeUsage = @'
 
 下载模型前可以在软件中选择保存位置；之后也可以到“设置”中迁移整个模型库，已下载的模型不需要重新下载。
 
-若想把模型放到不随版本变化的固定位置，可双击“安装到本机模型库.cmd”。固定位置是：
-  %LOCALAPPDATA%\声作模型库
-
 软件内“本地引擎”和“设置”均可直接打开当前模型文件夹。
+需要换到固定位置或其他磁盘时，直接在“设置”中点击“迁移位置”，软件会复制、核对并切换模型库。
 设置中的“一键检查修复”可以检查本地后台、模型环境、FFmpeg、文件权限和硬件配置。
 克隆声音时可以点击选择录音，也可以从资源管理器直接把音频拖进窗口。
 设置中可以修改导出文件名规则；导出时会显示最终名称，也可以临时改名。
@@ -185,7 +146,7 @@ $completeUsage = @'
 
 $completeVersion = @"
 产品：声作
-版本：1.0.0
+版本：1.0.1
 发布日期：$ReleaseDate
 系统：Windows 10/11 x64
 入口：启动.cmd

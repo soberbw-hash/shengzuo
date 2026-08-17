@@ -110,6 +110,17 @@
     "consoleErrors": []
   },
   {
+    "name": "07c-check-update",
+    "route": "/settings",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "07c-check-update-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "08-help",
     "route": "/help",
     "width": 1280,

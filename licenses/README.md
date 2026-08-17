@@ -1,13 +1,22 @@
-# Licenses
+# 第三方许可说明
 
-当前模型全部为未审计实验性条目，没有模型代码或权重进入仓库。
+声作本体适用仓库根目录的 [专有软件许可](../LICENSE)。本目录只记录声作引用、安装或在构建阶段使用的第三方内容；这些内容不因声作的许可而改变其原始条款。
 
-## @breezystack/lamejs
+## 本地模型
 
-- 版本：1.2.7
-- 用途：在构建阶段生成 2 秒 MP3 测试提示音；不会进入桌面运行时代码。
-- 许可：LGPL-3.0
-- 项目：https://github.com/shijinyu/lamejs
-- 上游说明：https://lame.sourceforge.io/
+| 项目                       | 代码许可           | 权重/模型许可              | 说明                         |
+| -------------------------- | ------------------ | -------------------------- | ---------------------------- |
+| VoxCPM2                    | Apache License 2.0 | Apache License 2.0         | 软件按固定官方版本下载并校验 |
+| Fun-CosyVoice3 / CosyVoice | Apache License 2.0 | Apache License 2.0         | Matcha-TTS 部分为 MIT        |
+| IndexTTS-2.5               | 以官方仓库声明为准 | bilibili Model Use License | 使用前必须遵守模型用途限制   |
 
-本项目未修改 LAME.js 源码。完整许可文本可从锁定依赖包的 `LICENSE` 文件和 LGPL-3.0 官方文本获取。
+每款模型的固定 revision、下载文件、SHA-256 与许可摘要位于 `engines/<模型>/model-manifest.json` 和对应 `licenses/README.md`。
+
+## 桌面与构建组件
+
+- Electron、React、Vite、Tailwind CSS：分别遵循其上游开源许可证。
+- Lucide：ISC License。
+- `@breezystack/lamejs` 1.2.7：LGPL-3.0，仅在构建阶段生成测试 MP3，不进入桌面运行时代码；本项目未修改其源码。
+- Python、PyTorch、torchaudio、Transformers、FFmpeg/imageio-ffmpeg 及模型依赖：分别遵循随上游发行内容提供的许可证。
+
+正式分发时应保留适用的第三方许可、版权和模型使用条款。第三方名称与商标归各自权利人所有，不表示其对声作提供认可或担保。
