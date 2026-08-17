@@ -207,7 +207,7 @@ void app
     await clickByText(window, "检查更新");
     await waitFor(
       window,
-      "document.body.innerText.includes('当前已是最新版本') && document.body.innerText.includes('最新版本 1.0.1')",
+      "document.body.innerText.includes('当前已是最新版本') && document.body.innerText.includes('最新版本 1.0.2')",
       "检查更新结果",
     );
     await clickByText(window, "知道了");

@@ -13,7 +13,7 @@
 
 <p align="center">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-3b82f6" />
-  <img alt="版本 1.0.1" src="https://img.shields.io/badge/version-1.0.1-22a67a" />
+  <img alt="版本 1.0.2" src="https://img.shields.io/badge/version-1.0.2-22a67a" />
   <img alt="本地运行" src="https://img.shields.io/badge/voice-local--first-60a5fa" />
   <img alt="保留全部权利" src="https://img.shields.io/badge/license-All%20Rights%20Reserved-64748b" />
 </p>

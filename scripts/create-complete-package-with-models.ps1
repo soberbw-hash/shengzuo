@@ -108,7 +108,7 @@ $manifest = [ordered]@{
 )
 
 $completeUsage = @'
-声作 1.0.1 · 含三模型完整便携版
+声作 1.0.2 · 含三模型完整便携版
 ================================
 
 打开方法
@@ -146,7 +146,7 @@ $completeUsage = @'
 
 $completeVersion = @"
 产品：声作
-版本：1.0.1
+版本：1.0.2
 发布日期：$ReleaseDate
 系统：Windows 10/11 x64
 入口：启动.cmd
