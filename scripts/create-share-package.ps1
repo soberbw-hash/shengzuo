@@ -115,7 +115,7 @@ exit /b 2
 [IO.File]::WriteAllText((Join-Path $stagingRoot '启动.cmd'), $normalLauncher, [Text.Encoding]::ASCII)
 
 $usageGuide = @"
-声作 1.0.1 · 完整便携版
+声作 1.0.2 · 完整便携版
 ============================
 
 让自己的声音，成为作品。
