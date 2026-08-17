@@ -1,0 +1,18 @@
+{
+  "name": "@ai-voice-studio/shared-types",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.1.0",
+    "tsx": "4.20.3",
+    "typescript": "5.8.3"
+  }
+}

@@ -1,0 +1,200 @@
+[
+  {
+    "name": "01-generate-ready",
+    "route": "/",
+    "width": 1440,
+    "height": 900,
+    "scale": 1,
+    "fileName": "01-generate-ready-1440x900@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02-subtitles",
+    "route": "/subtitles",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "02-subtitles-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02b-generate-compact",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02b-generate-compact-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "03-dialogue",
+    "route": "/dialogue",
+    "width": 1440,
+    "height": 900,
+    "scale": 1,
+    "fileName": "03-dialogue-1440x900@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "04-voices",
+    "route": "/voices",
+    "width": 1920,
+    "height": 1080,
+    "scale": 1,
+    "fileName": "04-voices-1920x1080@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "04b-voice-drag",
+    "route": "/voices?clone=1",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "04b-voice-drag-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "05-projects",
+    "route": "/projects",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "05-projects-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "06-models",
+    "route": "/models",
+    "width": 1440,
+    "height": 900,
+    "scale": 1,
+    "fileName": "06-models-1440x900@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "07-settings",
+    "route": "/settings",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "07-settings-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "07b-export-naming",
+    "route": "/settings",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "07b-export-naming-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "08-help",
+    "route": "/help",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "08-help-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "09-downloading",
+    "route": "/models",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "09-downloading-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "09b-installing",
+    "route": "/models",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "09b-installing-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "09c-download-paused",
+    "route": "/models",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "09c-download-paused-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "09d-download-location",
+    "route": "/models",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "09d-download-location-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "10-generating",
+    "route": "/",
+    "width": 1440,
+    "height": 900,
+    "scale": 1,
+    "fileName": "10-generating-1440x900@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "11-error",
+    "route": "/",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "11-error-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "12-empty",
+    "route": "/projects",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "12-empty-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  }
+]

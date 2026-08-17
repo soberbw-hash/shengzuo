@@ -1,0 +1,8 @@
+{
+  "id": "indextts2-5",
+  "name": "IndexTTS-2.5",
+  "version": "2.5",
+  "workerProtocol": "1.0",
+  "license": "bilibili-Model-Use-License",
+  "loopbackOnly": true
+}

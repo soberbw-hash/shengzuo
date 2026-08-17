@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mock",
+  "displayName": "声作演示引擎",
+  "version": "0.1.0",
+  "status": "experimental",
+  "protocolVersion": "1.0",
+  "capabilities": ["text-to-speech", "pause-download", "cancel-generation"],
+  "runtime": {
+    "kind": "typescript-in-process",
+    "path": "runtime"
+  },
+  "worker": {
+    "entry": "worker/mock",
+    "bind": "loopback-only"
+  },
+  "weightManifest": null,
+  "licenseManifest": "licenses/README.md",
+  "estimatedDiskBytes": 0,
+  "minAppVersion": "0.1.0"
+}

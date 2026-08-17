@@ -1,0 +1,13 @@
+[
+  {
+    "name": "14-generate-150-percent",
+    "route": "/",
+    "width": 1280,
+    "height": 800,
+    "scale": 1.5,
+    "fileName": "14-generate-150-percent-1280x800@1.5x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  }
+]

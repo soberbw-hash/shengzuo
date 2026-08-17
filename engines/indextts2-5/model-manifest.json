@@ -1,0 +1,93 @@
+{
+  "sources": [
+    {
+      "label": "IndexTTS-2.5",
+      "directory": "index-tts",
+      "url": "https://codeload.github.com/index-tts/index-tts/zip/4f8792ff120cd3ea470dd511e997a17c86cddd10",
+      "sha256": "925343fed804c9a6cc2e4e2bc8597c6bfd1054ad14f2618cd526b4f1489ea1c1",
+      "requiredSha256": {
+        "indextts/infer_v2_5.py": "333c0c1a140206e18a7bfe286efd9979571e6dc1370a8b2f4a18eef7619ac5d5",
+        "indextts/utils/model_download.py": "705c7549b344dd00b591b8733c0766768a0b0f30c172c3246ccb519077c5797c",
+        "LICENSE": "53875532237e0a97b17a41721556ff57e93193fc566e48c3a0febe6e35bb5343",
+        "pyproject.toml": "1da589548c52d8169bad728e479f70c50a43a95ae51fffa4f25f2250ac79458b"
+      }
+    }
+  ],
+  "models": [
+    {
+      "label": "IndexTTS-2.5",
+      "directory": "IndexTTS-2.5",
+      "repository": "IndexTeam/IndexTTS-2.5",
+      "revision": "c39ce5ba981572cb187443877ff559dfb246ce63",
+      "allowPatterns": ["*"],
+      "requiredSha256": {
+        "codec.pth": "d15cbed16a40f478438c961fb043f68dfa6353bf56c966761315db3433e9722c",
+        "feat1.pt": "f219cb447d80216ba615666da2ff8d63ac544eee26657f3a7b278692bf7a67c4",
+        "feat2.pt": "9c4292e96dee535aea9a6206e9a0c856dd578dde9212acdb16dd3ada4d12bf80",
+        "gpt.pth": "43a8f4c30eccdf201958d3b9713511482c19d56dc20b0b1c4ee1e6b080b19d85",
+        "qwen0.6bemo4-merge/model.safetensors": "11293257a8df593c154a8ecd5fc039f3076de35411e35f06d41b471e136f6641",
+        "qwen0.6bemo4-merge/tokenizer.json": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+        "s2mel.pth": "9b1b0003fc189c94cc349758d7ebc25f903b7eb2de4602879959cc64ce816456",
+        "wav2vec2bert_stats.pt": "c9c176c2b8850ab2e3ba828bbfa969deaf4566ce55db5f2687b8430b87526ad2",
+        "hf_cache/w2v-bert-2.0/model.safetensors": "eb890c9660ed6e3414b6812e27257b8ce5454365d5490d3ad581ea60b93be043",
+        "hf_cache/w2v-bert-2.0/config.json": "f5572bd5998b68182e9c328a43127ed21fed687f6910497136b91a4e3b0e3675",
+        "hf_cache/w2v-bert-2.0/preprocessor_config.json": "8e6281aad64f97e40534135a59dcc5d33571efae376f2a25adf5551951897ab4",
+        "hf_cache/semantic_codec_model.safetensors": "ec947271175d8cad75ec37e83aa487e27c97a0f72a303393772da5ffa84bddf2",
+        "hf_cache/campplus_cn_common.bin": "3388cf5fd3493c9ac9c69851d8e7a8badcfb4f3dc631020c4961371646d5ada8",
+        "hf_cache/bigvgan/config.json": "88a1f47acf747db0b21e97a389d838566147f7a5464583ff5c8d819d870f03ee",
+        "hf_cache/bigvgan/bigvgan_generator.pt": "e95ba25972d3de0628d99cd156e9315a9c018899bf739988959ebe3544080ced"
+      },
+      "extraFiles": [
+        {
+          "label": "Wav2Vec2-BERT 权重",
+          "path": "hf_cache/w2v-bert-2.0/model.safetensors",
+          "cacheName": "indextts-w2v-model.safetensors",
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/model.safetensors",
+          "sha256": "eb890c9660ed6e3414b6812e27257b8ce5454365d5490d3ad581ea60b93be043"
+        },
+        {
+          "label": "Wav2Vec2-BERT 配置",
+          "path": "hf_cache/w2v-bert-2.0/config.json",
+          "cacheName": "indextts-w2v-config.json",
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/config.json",
+          "sha256": "f5572bd5998b68182e9c328a43127ed21fed687f6910497136b91a4e3b0e3675"
+        },
+        {
+          "label": "Wav2Vec2-BERT 预处理配置",
+          "path": "hf_cache/w2v-bert-2.0/preprocessor_config.json",
+          "cacheName": "indextts-w2v-preprocessor.json",
+          "url": "https://huggingface.co/facebook/w2v-bert-2.0/resolve/da985ba0987f70aaeb84a80f2851cfac8c697a7b/preprocessor_config.json",
+          "sha256": "8e6281aad64f97e40534135a59dcc5d33571efae376f2a25adf5551951897ab4"
+        },
+        {
+          "label": "语义编码器",
+          "path": "hf_cache/semantic_codec_model.safetensors",
+          "cacheName": "indextts-semantic-codec.safetensors",
+          "url": "https://huggingface.co/amphion/MaskGCT/resolve/265c6cef07625665d0c28d2faafb1415562379dc/semantic_codec/model.safetensors",
+          "sha256": "ec947271175d8cad75ec37e83aa487e27c97a0f72a303393772da5ffa84bddf2"
+        },
+        {
+          "label": "说话人模型",
+          "path": "hf_cache/campplus_cn_common.bin",
+          "cacheName": "indextts-campplus.bin",
+          "url": "https://huggingface.co/funasr/campplus/resolve/e4b6ede7ce16997aff4ae69fbca1f0175e2afede/campplus_cn_common.bin",
+          "sha256": "3388cf5fd3493c9ac9c69851d8e7a8badcfb4f3dc631020c4961371646d5ada8"
+        },
+        {
+          "label": "BigVGAN 配置",
+          "path": "hf_cache/bigvgan/config.json",
+          "cacheName": "indextts-bigvgan-config.json",
+          "url": "https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x/resolve/633ff708ed5b74903e86ff1298cf4a98e921c513/config.json",
+          "sha256": "88a1f47acf747db0b21e97a389d838566147f7a5464583ff5c8d819d870f03ee"
+        },
+        {
+          "label": "BigVGAN 权重",
+          "path": "hf_cache/bigvgan/bigvgan_generator.pt",
+          "cacheName": "indextts-bigvgan-generator.pt",
+          "url": "https://huggingface.co/nvidia/bigvgan_v2_22khz_80band_256x/resolve/633ff708ed5b74903e86ff1298cf4a98e921c513/bigvgan_generator.pt",
+          "sha256": "e95ba25972d3de0628d99cd156e9315a9c018899bf739988959ebe3544080ced"
+        }
+      ]
+    }
+  ]
+}

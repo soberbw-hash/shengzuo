@@ -1,0 +1,12 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "engines/*"
+
+blockExoticSubdeps: false
+
+allowBuilds:
+  "@swc/core": true
+  electron: true
+  electron-winstaller: true
+  esbuild: true

@@ -1,0 +1,45 @@
+{
+  "sources": [
+    {
+      "label": "CosyVoice",
+      "directory": "CosyVoice",
+      "url": "https://codeload.github.com/QwenAudio/CosyVoice/zip/074ca6dc9e80a2f424f1f74b48bdd7d3fea531cc",
+      "sha256": "4e7b1ce909f97abcc8afa0a890f92ccf2839ff435c698d4f04a1ba7aa71a022f",
+      "requiredSha256": {}
+    },
+    {
+      "label": "Matcha-TTS",
+      "directory": "Matcha-TTS",
+      "url": "https://codeload.github.com/shivammehta25/Matcha-TTS/zip/dd9105b34bf2be2230f4aa1e4769fb586a3c824e",
+      "sha256": "75701744385a813822b2561b02562e4efe5e241d0142c21969642fcb15f61c15",
+      "requiredSha256": {}
+    }
+  ],
+  "models": [
+    {
+      "label": "Fun-CosyVoice3 0.5B 2512",
+      "directory": "Fun-CosyVoice3-0.5B-2512",
+      "repository": "FunAudioLLM/Fun-CosyVoice3-0.5B-2512",
+      "revision": "29e01c4e8d000f4bcd70751be16fa94bf3d85a18",
+      "allowPatterns": [
+        "CosyVoice-BlankEN/*",
+        "campplus.onnx",
+        "config.json",
+        "configuration.json",
+        "cosyvoice3.yaml",
+        "flow.pt",
+        "hift.pt",
+        "llm.pt",
+        "speech_tokenizer_v3.onnx"
+      ],
+      "requiredSha256": {
+        "CosyVoice-BlankEN/model.safetensors": "130282af0dfa9fe5840737cc49a0d339d06075f83c5a315c3372c9a0740d0b96",
+        "campplus.onnx": "a6ac6a63997761ae2997373e2ee1c47040854b4b759ea41ec48e4e42df0f4d73",
+        "flow.pt": "a6fab32a7825e5b0bc855ddd948f8db9370b0a786fbc249caa4595e95b608e4b",
+        "hift.pt": "b279d7641eb97ae55b3b540cfba4f953c26492a2df758328a89a4d007ab87a65",
+        "llm.pt": "69f43bd545131c30e98947fb360ea8b4dc9916d8e83dded7757c7ea4f5a24970",
+        "speech_tokenizer_v3.onnx": "23236a74175dbdda47afc66dbadd5bcb41303c467a57c261cb8539ad9db9208d"
+      }
+    }
+  ]
+}

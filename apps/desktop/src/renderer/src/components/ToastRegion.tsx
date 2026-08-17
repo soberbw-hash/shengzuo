@@ -1,0 +1,60 @@
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useEffect } from "react";
+
+import { ToastCard } from "@ai-voice-studio/ui";
+
+import { useStudioStore } from "../store/studioStore";
+
+const AutoDismissToast = ({
+  id,
+  title,
+  description,
+  tone,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  tone: "neutral" | "info" | "success" | "warning" | "danger";
+}) => {
+  const dismissToast = useStudioStore((state) => state.dismissToast);
+  useEffect(() => {
+    const timer = window.setTimeout(() => dismissToast(id), 4_200);
+    return () => window.clearTimeout(timer);
+  }, [dismissToast, id]);
+
+  return (
+    <ToastCard
+      title={title}
+      description={description}
+      tone={tone}
+      onClose={() => dismissToast(id)}
+    />
+  );
+};
+
+export const ToastRegion = () => {
+  const toasts = useStudioStore((state) => state.toasts);
+  const reduceMotion = useReducedMotion();
+  return (
+    <div className="toast-region" aria-live="polite">
+      <AnimatePresence initial={false}>
+        {toasts.map((toast) => (
+          <motion.div
+            key={toast.id}
+            layout
+            initial={
+              reduceMotion ? { opacity: 0 } : { opacity: 0, y: -8, scale: 0.98 }
+            }
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={
+              reduceMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.98 }
+            }
+            transition={{ duration: reduceMotion ? 0 : 0.18 }}
+          >
+            <AutoDismissToast {...toast} />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
+  );
+};

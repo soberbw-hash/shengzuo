@@ -1,0 +1,62 @@
+appId: com.shengzuo.desktop
+productName: "声作"
+copyright: "Copyright © 2026 声作"
+asar: true
+npmRebuild: false
+electronVersion: 35.7.5
+directories:
+  output: apps/desktop/release
+  buildResources: apps/desktop/build
+files:
+  - "apps/desktop/dist/**"
+  - "apps/desktop/dist-electron/**"
+  - "!apps/desktop/dist/**/*.map"
+  - "!apps/desktop/dist-electron/**/*.map"
+  - "package.json"
+extraResources:
+  - from: licenses
+    to: licenses
+  - from: engines/common
+    to: engines/common
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+  - from: engines/voxcpm2
+    to: engines/voxcpm2
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+  - from: engines/fun-cosyvoice3
+    to: engines/fun-cosyvoice3
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+  - from: engines/indextts2-5
+    to: engines/indextts2-5
+    filter:
+      - "**/*"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+  - from: apps/desktop/build
+    to: build
+extraMetadata:
+  name: shengzuo
+  description: "声作是一款面向创作者的 Windows 本地声音克隆与配音工作台"
+  main: apps/desktop/dist-electron/main/index.cjs
+win:
+  executableName: ShengZuo
+  artifactName: ShengZuo-${version}-Windows-${arch}.${ext}
+  icon: apps/desktop/build/icon.ico
+  electronLanguages:
+    - zh-CN
+    - en-US
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: "声作"

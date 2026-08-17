@@ -1,0 +1,7 @@
+node_modules
+dist
+dist-electron
+release
+artifacts/visual-regression
+artifacts/integration/indextts2-5-audit
+apps/desktop/public/mock-audio/preview.mp3

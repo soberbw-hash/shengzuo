@@ -1,0 +1,44 @@
+{
+  "name": "shengzuo-workspace",
+  "version": "1.0.0",
+  "description": "声作是一款面向创作者的 Windows 本地声音克隆与配音工作台",
+  "author": {
+    "name": "声作"
+  },
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "assets:generate": "node scripts/generate-test-audio.mjs",
+    "predev": "pnpm assets:generate",
+    "dev": "pnpm --dir apps/desktop dev",
+    "prebuild": "pnpm assets:generate",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "pnpm -r --if-present test",
+    "package:win": "pnpm --dir apps/desktop package:win",
+    "visual:capture": "pnpm build && node scripts/capture-visuals.cjs",
+    "test:interaction": "pnpm build && node scripts/run-interaction-smoke.cjs",
+    "pretest:audio": "pnpm assets:generate",
+    "test:audio": "node scripts/verify-test-audio.mjs",
+    "test:worker-security": "node scripts/verify-worker-security.mjs"
+  },
+  "devDependencies": {
+    "@breezystack/lamejs": "1.2.7",
+    "@eslint/js": "9.32.0",
+    "@types/node": "24.1.0",
+    "eslint": "9.32.0",
+    "eslint-plugin-react-hooks": "5.2.0",
+    "eslint-plugin-react-refresh": "0.4.20",
+    "globals": "16.3.0",
+    "prettier": "3.6.2",
+    "tsx": "4.20.3",
+    "typescript": "5.8.3",
+    "typescript-eslint": "8.38.0"
+  }
+}
