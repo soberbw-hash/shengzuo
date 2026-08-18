@@ -1,6 +1,8 @@
-import type {
-  EngineStatus,
-  GenerationRequest,
+import {
+  SINGLE_GENERATION_TEXT_LIMITS,
+  countMeaningfulCharacters,
+  type EngineStatus,
+  type GenerationRequest,
 } from "@ai-voice-studio/shared-types";
 
 const allowedTransitions: Record<EngineStatus, readonly EngineStatus[]> = {
@@ -25,10 +27,14 @@ export const validateGenerationRequest = (
 ): string[] => {
   const errors: string[] = [];
   const trimmedText = request.text.trim();
+  const textLimit = SINGLE_GENERATION_TEXT_LIMITS[request.modelId];
+  const characterCount = countMeaningfulCharacters(request.text);
 
   if (trimmedText.length === 0) errors.push("请输入需要配音的文字。");
-  if (request.text.length > 20_000)
-    errors.push("单次文本不能超过 20,000 个字符。");
+  if (characterCount > textLimit)
+    errors.push(
+      `单次文本不能超过 ${textLimit.toLocaleString("zh-CN")} 个字，空格和空行不计。`,
+    );
   if (request.expression.length > 500)
     errors.push("表达要求不能超过 500 个字符。");
   if (request.speed < 0.5 || request.speed > 2)

@@ -31,7 +31,40 @@ const standardScenarios = [
     route: "/subtitles",
     query: "capture=subtitles&state=ready",
     width: 1280,
-    height: 800,
+    height: 720,
+    requireVisibleText: "生成完整音轨",
+    requireNoVerticalScroll: true,
+  },
+  {
+    name: "02a-pronunciation-dictionary",
+    route: "/",
+    query: "capture=interaction&state=ready",
+    width: 1280,
+    height: 720,
+    clickText: "发音词典",
+    requireVisibleText: "添加读音",
+  },
+  {
+    name: "02c-smart-text",
+    route: "/",
+    query: "capture=interaction&state=ready",
+    width: 1280,
+    height: 720,
+    fillTextArea: {
+      id: "script-text",
+      text: "欢迎使用声作，这段文字将先经过智能处理，再由你确认是否替换。",
+    },
+    clickText: "智能处理",
+    requireVisibleText: "开始处理",
+  },
+  {
+    name: "02d-api-missing",
+    route: "/",
+    query: "capture=interaction&state=ready&api=missing",
+    width: 1280,
+    height: 720,
+    focusText: "智能处理",
+    requireVisibleText: "智能处理",
   },
   {
     name: "02b-generate-compact",
@@ -45,14 +78,38 @@ const standardScenarios = [
   {
     name: "03-dialogue",
     route: "/dialogue",
-    query: "state=ready",
-    width: 1440,
-    height: 900,
+    query: "capture=interaction&state=ready",
+    width: 1280,
+    height: 720,
+    requireVisibleText: "生成整段对话",
+    requireNoVerticalScroll: true,
+  },
+  {
+    name: "03a-dialogue-smart-review",
+    route: "/dialogue",
+    query: "capture=interaction&state=ready",
+    width: 1280,
+    height: 720,
+    fillTextArea: {
+      id: "dialogue-script-input",
+      text: "【夜晚，车站外】镜头推近。小林：我们出发吧。阿宁：好，现在就走。",
+    },
+    clickText: "智能整理脚本",
+    requireVisibleText: "使用整理结果",
+  },
+  {
+    name: "03b-dialogue-api-missing",
+    route: "/dialogue",
+    query: "capture=interaction&state=ready&api=missing",
+    width: 1280,
+    height: 720,
+    focusText: "智能整理脚本",
+    requireVisibleText: "智能整理脚本",
   },
   {
     name: "04-voices",
     route: "/voices",
-    query: "state=ready",
+    query: "capture=interaction&state=ready",
     width: 1920,
     height: 1080,
   },
@@ -63,6 +120,15 @@ const standardScenarios = [
     width: 1280,
     height: 800,
     requireVisibleText: "选择音频",
+  },
+  {
+    name: "04c-voice-samples",
+    route: "/voices",
+    query: "capture=interaction&state=ready",
+    width: 1280,
+    height: 800,
+    clickAriaLabel: "管理 测试声音 的参考录音",
+    requireVisibleText: "添加并选中",
   },
   {
     name: "05-projects",
@@ -85,6 +151,7 @@ const standardScenarios = [
     width: 1280,
     height: 800,
     requireVisibleText: "一键检查修复",
+    requireNoVerticalScroll: true,
   },
   {
     name: "07b-export-naming",
@@ -103,11 +170,12 @@ const standardScenarios = [
     requireVisibleText: "知道了",
   },
   {
-    name: "08-help",
-    route: "/help",
-    query: "state=ready",
+    name: "07d-smart-api",
+    route: "/settings",
+    query: "state=ready&smart=1",
     width: 1280,
     height: 800,
+    requireVisibleText: "保存并测试",
   },
   {
     name: "09-downloading",
@@ -219,6 +287,97 @@ void app
         hash: scenario.route,
       });
       await delay(700);
+      if (scenario.clickAriaLabel) {
+        const clicked = await window.webContents.executeJavaScript(`(() => {
+          const target = [...document.querySelectorAll("[aria-label]")].find(
+            (item) => item.getAttribute("aria-label") === ${JSON.stringify(
+              scenario.clickAriaLabel,
+            )},
+          );
+          if (!(target instanceof HTMLElement)) return false;
+          target.click();
+          return true;
+        })()`);
+        if (!clicked) {
+          throw new Error(
+            `${scenario.name} could not click ${scenario.clickAriaLabel}`,
+          );
+        }
+        await delay(180);
+      }
+      if (scenario.fillTextArea) {
+        const filled = await window.webContents.executeJavaScript(`(() => {
+          const target = document.getElementById(${JSON.stringify(
+            scenario.fillTextArea.id,
+          )});
+          if (!(target instanceof HTMLTextAreaElement)) return false;
+          const setter = Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            "value",
+          )?.set;
+          setter?.call(target, ${JSON.stringify(scenario.fillTextArea.text)});
+          target.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })()`);
+        if (!filled) {
+          throw new Error(
+            `${scenario.name} could not fill ${scenario.fillTextArea.id}`,
+          );
+        }
+        await delay(100);
+      }
+      if (scenario.focusText) {
+        const focused = await window.webContents.executeJavaScript(`(() => {
+          const target = [...document.querySelectorAll("button, a")].find(
+            (item) => item.textContent?.trim().includes(${JSON.stringify(
+              scenario.focusText,
+            )}),
+          );
+          if (!(target instanceof HTMLElement)) return false;
+          const focusTarget = target.matches(":disabled")
+            ? target.closest(".smart-text-help-trigger")
+            : target;
+          if (!(focusTarget instanceof HTMLElement)) return false;
+          focusTarget.focus();
+          return true;
+        })()`);
+        if (!focused) {
+          throw new Error(
+            `${scenario.name} could not focus ${scenario.focusText}`,
+          );
+        }
+        await delay(180);
+      }
+      if (scenario.clickText) {
+        const clicked = await window.webContents.executeJavaScript(`(() => {
+          const target = [...document.querySelectorAll("button, a")].find(
+            (item) => item.textContent?.trim().includes(${JSON.stringify(
+              scenario.clickText,
+            )}),
+          );
+          if (!(target instanceof HTMLElement)) return false;
+          target.click();
+          return true;
+        })()`);
+        if (!clicked) {
+          throw new Error(
+            `${scenario.name} could not click ${scenario.clickText}`,
+          );
+        }
+        await delay(180);
+      }
+      const harmonyFontReady = await window.webContents
+        .executeJavaScript(`(async () => {
+        await document.fonts.ready;
+        const family = getComputedStyle(document.documentElement).fontFamily;
+        return family.includes("Shengzuo HarmonyOS Sans") &&
+          document.fonts.check('12px "Shengzuo HarmonyOS Sans"', "声作鸿蒙字体");
+      })()`);
+      if (!harmonyFontReady) {
+        throw new Error(
+          `${scenario.name} did not load the bundled HarmonyOS Sans font`,
+        );
+      }
       let mainOpacity = 0;
       for (let attempt = 0; attempt < 20; attempt += 1) {
         mainOpacity = Number(

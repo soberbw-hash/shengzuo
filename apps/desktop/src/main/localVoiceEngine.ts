@@ -25,11 +25,17 @@ import type { Readable } from "node:stream";
 
 import { app } from "electron";
 
+import {
+  applyTextReplacementRules,
+  speechPauseAfter,
+  splitTextForSpeech,
+} from "@ai-voice-studio/audio-tools";
 import { validateGenerationRequest } from "@ai-voice-studio/engine-sdk";
 import { detectHardware } from "@ai-voice-studio/hardware-detector";
 import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
+  getModelGenerationCapabilities,
   type AudioResult,
   type BatchGenerationRequest,
   type DownloadSource,
@@ -38,10 +44,17 @@ import {
   type EnqueueTaskRequest,
   type GenerationTask,
   type GenerationRequest,
+  type GenerationQualityMode,
   type ModelStorageInfo,
   type ModelId,
 } from "@ai-voice-studio/shared-types";
 
+import {
+  assessGeneratedAudio,
+  type GeneratedAudioAssessment,
+  type GeneratedAudioMetrics,
+} from "./generatedAudioQuality";
+import { readResilientJson, writeResilientJson } from "./resilientJsonStore";
 import { TaskStore, type StoredGenerationTask } from "./taskStore";
 import {
   moveModelLibrary,
@@ -179,11 +192,15 @@ const friendlyGenerationError = (code?: string): string => {
       return "当前模型不支持所选语言，请更换语言后重试。";
     case "MODEL_SHA256_MISMATCH":
     case "SOURCE_SHA256_MISMATCH":
-      return "官方文件校验失败，没有加载模型；请重新下载安装。";
+      return "下载的模型文件不完整，请重新下载当前模型。";
     case "WORKER_HANDSHAKE_FAILED":
-      return "本地模型进程没有正常启动，请重试。";
+      return "模型没有正常启动，请重试。";
     case "SYSTEM_MEMORY_LOW":
       return "没有兼容显卡，且系统内存不足 16GB；当前电脑不适合运行这些本地模型。";
+    case "AUDIO_QUALITY_CHECK_FAILED":
+      return "音频出现漏读、长时间静音或语速异常，自动重做后仍未解决。已经生成的句子会保留，可以直接重试。";
+    case "PRONUNCIATION_EXPANSION_LIMIT":
+      return "发音词典把文字扩展得过长，请缩短“读作”内容后重试。";
     default:
       return "这次没有生成成功。请检查录音和文本后重试；若显存不足，请关闭其他占用显卡的程序。";
   }
@@ -259,6 +276,9 @@ const verifyInstallReceipt = async (directory: string): Promise<void> => {
 const batchFingerprint = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
+const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
 interface BatchCacheManifest {
   projectId: string;
   segments: Record<
@@ -266,6 +286,36 @@ interface BatchCacheManifest {
     { fingerprint: string; durationSeconds: number; fileId: string }
   >;
 }
+
+interface CheckedGeneration {
+  durationSeconds: number;
+  assessment: GeneratedAudioAssessment;
+  retried: boolean;
+}
+
+type SegmentedGenerationRequest = Omit<BatchGenerationRequest, "kind"> & {
+  kind: NonNullable<AudioResult["kind"]>;
+};
+
+const speechTextSignature = (value: string): string =>
+  value.replace(/\s/gu, "");
+
+const qualityModeFor = (
+  request: Pick<GenerationRequest, "presetId" | "text">,
+): GenerationQualityMode =>
+  request.presetId === "longform" ||
+  request.presetId === "expressive" ||
+  speechTextSignature(request.text).length > 300
+    ? "careful"
+    : "standard";
+
+const safeChunkSize = (
+  modelId: ModelId,
+  mode: GenerationQualityMode,
+): number => {
+  if (modelId === "voxcpm2") return mode === "careful" ? 52 : 70;
+  return mode === "careful" ? 120 : 160;
+};
 
 class ModelEngine {
   private readonly pluginRoot: string;
@@ -283,6 +333,7 @@ class ModelEngine {
   private activeInstallRun: number | undefined;
   private worker: WorkerConnection | undefined;
   private generationAbort: AbortController | undefined;
+  private previewResultId: string | undefined;
   private installRun = 0;
   private disposed = false;
 
@@ -430,7 +481,9 @@ class ModelEngine {
           }
         }),
     );
-    return results.filter((value): value is AudioResult => value !== null);
+    return results
+      .filter((value): value is AudioResult => value !== null)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
   async setResultFavorite(
@@ -511,7 +564,7 @@ class ModelEngine {
         }
       }
       if (!this.isInstalledAt(staging)) {
-        throw new Error("模型复制后校验失败，没有替换当前文件。");
+        throw new Error("模型没有复制完整，原来的文件仍然保留。");
       }
       for (const relativeDirectory of this.config.assetDirectories) {
         await verifyInstallReceipt(path.join(staging, relativeDirectory));
@@ -538,7 +591,7 @@ class ModelEngine {
       });
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("OFFLINE_")) {
-        throw new Error("离线模型文件校验未通过，请重新复制完整模型文件夹。");
+        throw new Error("文件夹里的模型不完整，请重新复制完整模型文件夹。");
       }
       throw error;
     } finally {
@@ -586,7 +639,7 @@ class ModelEngine {
     this.activeInstallRun = undefined;
     this.updateSnapshot({
       status: "download-paused",
-      message: "已暂停，点击继续会从已下载的位置接着下。",
+      message: "下载已暂停。点击“继续”会接着下载，不会重新开始。",
       canRetry: true,
     });
   }
@@ -642,6 +695,12 @@ class ModelEngine {
     this.stopInstallerProcess();
     this.generationAbort?.abort();
     await this.releaseWorker();
+    if (this.previewResultId) {
+      await rm(path.join(this.outputRoot, `${this.previewResultId}.mp3`), {
+        force: true,
+      });
+      this.previewResultId = undefined;
+    }
   }
 
   private setSnapshot(next: EngineSnapshot): void {
@@ -868,8 +927,8 @@ class ModelEngine {
           : errorCode.includes("SYSTEM_MEMORY_LOW")
             ? "没有兼容显卡，且系统内存不足 16GB；当前电脑不适合运行这些本地模型。"
             : errorCode.includes("SHA256")
-              ? "文件校验失败，没有安装模型。请重试。"
-              : "本地引擎没有安装完成，请检查网络和磁盘空间后重试。",
+              ? "下载的模型文件不完整，没有完成安装。请重新下载。"
+              : "模型没有安装完成，请检查网络和磁盘空间后重试。",
         canRetry: true,
         errorCode,
       });
@@ -979,6 +1038,61 @@ class ModelEngine {
       });
       return;
     }
+    const preparedText = applyTextReplacementRules(
+      request.text,
+      request.pronunciationRules,
+    );
+    if (speechTextSignature(preparedText).length > 4_000) {
+      this.updateSnapshot({
+        status: "generation-failed",
+        message: friendlyGenerationError("PRONUNCIATION_EXPANSION_LIMIT"),
+        canRetry: true,
+        errorCode: "PRONUNCIATION_EXPANSION_LIMIT",
+      });
+      return;
+    }
+    const qualityMode = qualityModeFor({ ...request, text: preparedText });
+    const speechSegments = splitTextForSpeech(
+      preparedText,
+      safeChunkSize(this.config.modelId, qualityMode),
+    );
+    if (
+      speechSegments.length === 0 ||
+      speechTextSignature(speechSegments.join("")) !==
+        speechTextSignature(preparedText)
+    ) {
+      this.updateSnapshot({
+        status: "generation-failed",
+        message: "这段文字无法正确分句，请检查标点或缩短后重试。",
+        canRetry: true,
+        errorCode: "SPEECH_SEGMENT_INTEGRITY",
+      });
+      return;
+    }
+    if (speechSegments.length > 1) {
+      await this.generateMany({
+        requestId: request.requestId,
+        modelId: request.modelId,
+        segments: speechSegments.map((text, index) => ({
+          id: `single-${index + 1}`,
+          voiceId: request.voiceId,
+          text,
+          expression: request.expression,
+        })),
+        language: request.language,
+        emotion: request.emotion,
+        speed: request.speed,
+        volume: request.volume,
+        pauseMs: 80,
+        format: request.format,
+        title: request.title,
+        kind: "single",
+        projectId: request.projectId,
+        presetId: request.presetId,
+        pronunciationRules: [],
+      });
+      return;
+    }
     if (!this.isInstalled()) {
       this.install();
       return;
@@ -1009,12 +1123,22 @@ class ModelEngine {
         progress: 35,
         message: `正在用 ${this.config.name} 生成配音，请稍候…`,
       });
-      const generated = await this.generateWithWorker(
+      const generated = await this.generateCheckedSegment(
         worker,
         jobId,
-        request,
+        { ...request, text: preparedText, pronunciationRules: [] },
         voice,
       );
+      if (
+        request.preview &&
+        this.previewResultId &&
+        this.previewResultId !== jobId
+      ) {
+        await rm(path.join(this.outputRoot, `${this.previewResultId}.mp3`), {
+          force: true,
+        });
+      }
+      if (request.preview) this.previewResultId = jobId;
       const result: AudioResult = {
         id: jobId,
         url: `shengzuo-audio://result/${encodeURIComponent(jobId)}`,
@@ -1022,14 +1146,26 @@ class ModelEngine {
         format: "mp3",
         createdAt: new Date().toISOString(),
         modelId: this.config.modelId,
-        title: "单段配音",
+        title: request.title,
         kind: "single",
+        preview: request.preview,
+        projectId: request.projectId,
+        quality: {
+          status: generated.assessment.issues.length ? "warning" : "passed",
+          checkedSegments: 1,
+          retriedSegments: generated.retried ? 1 : 0,
+          note: generated.assessment.issues.length
+            ? "音频检查仍有提醒，建议先试听。"
+            : "已完成音量、静音和语速检查。",
+        },
       };
-      await this.recordResult(result);
+      if (!request.preview) await this.recordResult(result);
       this.updateSnapshot({
         status: "success",
         progress: 100,
-        message: "配音已生成，可以试听或导出 MP3。",
+        message: request.preview
+          ? "试听已生成，不会加入生成记录。"
+          : "配音已生成，可以试听或导出 MP3。",
         jobId,
         result,
         canRetry: false,
@@ -1041,7 +1177,9 @@ class ModelEngine {
     }
   }
 
-  private async generateMany(request: BatchGenerationRequest): Promise<void> {
+  private async generateMany(
+    request: SegmentedGenerationRequest,
+  ): Promise<void> {
     if (!this.isInstalled()) {
       this.install();
       return;
@@ -1052,6 +1190,10 @@ class ModelEngine {
     const cachePrefix = `batch-${batchFingerprint(cacheKey).slice(0, 20)}`;
     const cache = await this.readBatchCache(cacheKey);
     let completedSegments = 0;
+    let checkedSegments = 0;
+    let retriedSegments = 0;
+    let warningSegments = 0;
+    let paceBaseline: number | undefined;
     this.generationAbort = new AbortController();
     try {
       this.updateSnapshot({
@@ -1076,15 +1218,24 @@ class ModelEngine {
         const cacheId = segment.id;
         const segmentId = `${cachePrefix}-part-${batchFingerprint(segment.id).slice(0, 16)}`;
         segmentIds.push(segmentId);
+        const preparedText = applyTextReplacementRules(
+          segment.text,
+          request.pronunciationRules,
+        );
+        if (speechTextSignature(preparedText).length > 4_000) {
+          throw new Error("PRONUNCIATION_EXPANSION_LIMIT");
+        }
         const fingerprint = batchFingerprint({
           modelId: request.modelId,
           voiceId: segment.voiceId,
-          text: segment.text,
-          label: segment.label ?? "自然、清晰",
+          text: preparedText,
+          expression: segment.expression ?? "自然、清晰",
           language: request.language,
-          emotion: request.emotion,
-          speed: request.speed,
+          emotion: segment.emotion ?? request.emotion,
+          speed: segment.speed ?? request.speed,
           volume: request.volume,
+          presetId: request.presetId ?? "natural",
+          qualityVersion: 1,
         });
         const cached = cache.segments[cacheId];
         if (
@@ -1094,12 +1245,23 @@ class ModelEngine {
         ) {
           durationSeconds += cached.durationSeconds;
           completedSegments += 1;
+          checkedSegments += 1;
+          const chineseUnits = Array.from(
+            preparedText.matchAll(/[\p{Script=Han}]/gu),
+          ).length;
+          if (chineseUnits >= 4) {
+            const cachedPace = cached.durationSeconds / chineseUnits;
+            paceBaseline =
+              paceBaseline === undefined
+                ? cachedPace
+                : paceBaseline * 0.72 + cachedPace * 0.28;
+          }
           this.updateSnapshot({
             status: "generating",
             progress:
               15 +
               Math.round((completedSegments / request.segments.length) * 70),
-            message: `已复用第 ${index + 1} / ${request.segments.length} 句缓存…`,
+            message: `第 ${index + 1} / ${request.segments.length} 句已经生成，直接使用已有音频…`,
           });
           continue;
         }
@@ -1114,23 +1276,37 @@ class ModelEngine {
           progress: 15 + Math.round((index / request.segments.length) * 70),
           message: `正在生成第 ${index + 1} / ${request.segments.length} 句…`,
         });
-        const generated = await this.generateWithWorker(
+        const generated = await this.generateCheckedSegment(
           worker,
           segmentId,
           {
             requestId: segmentId,
+            title: request.title,
             modelId: request.modelId,
             voiceId: segment.voiceId,
-            text: segment.text,
-            expression: segment.label ?? "自然、清晰",
+            text: preparedText,
+            expression: segment.expression ?? "自然、清晰",
             language: request.language,
-            emotion: request.emotion,
-            speed: request.speed,
+            emotion: segment.emotion ?? request.emotion,
+            speed: segment.speed ?? request.speed,
             volume: request.volume,
             format: request.format,
+            presetId: request.presetId,
+            pronunciationRules: [],
           },
           voice,
+          paceBaseline,
         );
+        checkedSegments += 1;
+        if (generated.retried) retriedSegments += 1;
+        if (generated.assessment.issues.length) warningSegments += 1;
+        if (generated.assessment.secondsPerUnit !== undefined) {
+          paceBaseline =
+            paceBaseline === undefined
+              ? generated.assessment.secondsPerUnit
+              : paceBaseline * 0.72 +
+                generated.assessment.secondsPerUnit * 0.28;
+        }
         durationSeconds += generated.durationSeconds;
         completedSegments += 1;
         cache.segments[cacheId] = {
@@ -1143,11 +1319,18 @@ class ModelEngine {
       this.updateSnapshot({
         status: "generating",
         progress: 90,
-        message: "正在合并并整理完整 MP3…",
+        message: "正在合并音频…",
       });
-      await this.mergeSegments(segmentIds, jobId, request.pauseMs);
+      const pausesMs =
+        request.kind === "single"
+          ? request.segments
+              .slice(0, -1)
+              .map((segment) => speechPauseAfter(segment.text, request.pauseMs))
+          : undefined;
+      await this.mergeSegments(segmentIds, jobId, request.pauseMs, pausesMs);
       durationSeconds +=
-        ((request.segments.length - 1) * request.pauseMs) / 1_000;
+        (pausesMs?.reduce((sum, value) => sum + value, 0) ??
+          (request.segments.length - 1) * request.pauseMs) / 1_000;
       const result: AudioResult = {
         id: jobId,
         url: `shengzuo-audio://result/${encodeURIComponent(jobId)}`,
@@ -1157,6 +1340,17 @@ class ModelEngine {
         modelId: request.modelId,
         title: request.title,
         kind: request.kind,
+        projectId: request.projectId,
+        quality: {
+          status: warningSegments ? "warning" : "passed",
+          checkedSegments,
+          retriedSegments,
+          note: warningSegments
+            ? `${warningSegments} 段仍有提醒，建议导出前试听。`
+            : retriedSegments
+              ? `已自动重做 ${retriedSegments} 段，检查通过。`
+              : "已完成逐段音量、静音和语速检查。",
+        },
       };
       await this.recordResult(result);
       if (!request.projectId) {
@@ -1166,11 +1360,12 @@ class ModelEngine {
           ),
         );
         await rm(this.batchCachePath(cacheKey), { force: true });
+        await rm(`${this.batchCachePath(cacheKey)}.bak`, { force: true });
       }
       this.updateSnapshot({
         status: "success",
         progress: 100,
-        message: "完整 MP3 已生成，可以试听或导出。",
+        message: "音频已生成，可以试听或导出。",
         jobId,
         result,
         canRetry: false,
@@ -1193,14 +1388,18 @@ class ModelEngine {
     request: GenerationRequest,
     voice: { audioPath: string; referenceText: string },
   ): Promise<{ durationSeconds: number }> {
+    const capabilities = getModelGenerationCapabilities(
+      request.modelId,
+      request.language,
+    );
     const generated = await this.workerRequest(
       worker,
       "/generate",
       {
         jobId,
         text: request.text,
-        expression: request.expression,
-        emotion: request.emotion,
+        expression: capabilities.expression ? request.expression : "自然、清晰",
+        emotion: capabilities.emotion ? request.emotion : "自然",
         language: request.language,
         speed: request.speed,
         volume: request.volume,
@@ -1220,6 +1419,119 @@ class ModelEngine {
     return { durationSeconds: generated.durationSeconds };
   }
 
+  private async generateCheckedSegment(
+    worker: WorkerConnection,
+    jobId: string,
+    request: GenerationRequest,
+    voice: { audioPath: string; referenceText: string },
+    baselineSecondsPerUnit?: number,
+  ): Promise<CheckedGeneration> {
+    const mode = qualityModeFor(request);
+    await this.generateWithWorker(worker, jobId, request, voice);
+    let bestMetrics = await this.inspectGeneratedAudio(jobId);
+    let bestAssessment = assessGeneratedAudio(
+      bestMetrics,
+      request.text,
+      mode,
+      baselineSecondsPerUnit,
+    );
+    let retried = false;
+    const retryCount = request.preview ? 0 : mode === "careful" ? 2 : 1;
+
+    for (
+      let attempt = 1;
+      bestAssessment.issues.length > 0 && attempt <= retryCount;
+      attempt += 1
+    ) {
+      retried = true;
+      const retryId = `${jobId}-retry-${attempt}`;
+      await rm(path.join(this.outputRoot, `${retryId}.mp3`), { force: true });
+      await this.generateWithWorker(
+        worker,
+        retryId,
+        { ...request, requestId: retryId },
+        voice,
+      );
+      const candidateMetrics = await this.inspectGeneratedAudio(retryId);
+      const candidateAssessment = assessGeneratedAudio(
+        candidateMetrics,
+        request.text,
+        mode,
+        baselineSecondsPerUnit,
+      );
+      if (candidateAssessment.score < bestAssessment.score) {
+        await cp(
+          path.join(this.outputRoot, `${retryId}.mp3`),
+          path.join(this.outputRoot, `${jobId}.mp3`),
+        );
+        bestMetrics = candidateMetrics;
+        bestAssessment = candidateAssessment;
+      }
+      await rm(path.join(this.outputRoot, `${retryId}.mp3`), { force: true });
+    }
+
+    if (bestAssessment.critical) {
+      await rm(path.join(this.outputRoot, `${jobId}.mp3`), { force: true });
+      throw new Error("AUDIO_QUALITY_CHECK_FAILED");
+    }
+    return {
+      durationSeconds: bestMetrics.durationSeconds,
+      assessment: bestAssessment,
+      retried,
+    };
+  }
+
+  private async inspectGeneratedAudio(
+    jobId: string,
+  ): Promise<GeneratedAudioMetrics> {
+    const audioPath = path.join(this.outputRoot, `${jobId}.mp3`);
+    const output = await new Promise<string>((resolve, reject) => {
+      const child = spawn(
+        this.pythonExe,
+        [
+          path.join(this.commonRoot, "worker", "inspect_audio.py"),
+          "--audio",
+          audioPath,
+        ],
+        {
+          windowsHide: true,
+          cwd: this.pluginRoot,
+          env: { ...process.env, PYTHONUTF8: "1" },
+          stdio: ["ignore", "pipe", "pipe"],
+        },
+      );
+      let stdout = "";
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string) => {
+        if (stdout.length < 16_000) stdout += chunk;
+      });
+      child.stderr.resume();
+      child.once("error", reject);
+      child.once("exit", (code) => {
+        if (code === 0) resolve(stdout.trim());
+        else reject(new Error(`AUDIO_INSPECTION_${code ?? "STOPPED"}`));
+      });
+    });
+    const value: unknown = JSON.parse(output);
+    if (typeof value !== "object" || value === null) {
+      throw new Error("INVALID_AUDIO_INSPECTION");
+    }
+    const metrics = value as Partial<GeneratedAudioMetrics>;
+    const fields: Array<keyof GeneratedAudioMetrics> = [
+      "durationSeconds",
+      "peakDb",
+      "rmsDb",
+      "silenceRatio",
+      "clippedRatio",
+      "leadingSilenceSeconds",
+      "trailingSilenceSeconds",
+    ];
+    if (fields.some((field) => typeof metrics[field] !== "number")) {
+      throw new Error("INVALID_AUDIO_INSPECTION");
+    }
+    return metrics as GeneratedAudioMetrics;
+  }
+
   private handleGenerationFailure(error: unknown, detail?: string): void {
     if (this.snapshot.status === "stopped") return;
     const code =
@@ -1234,6 +1546,15 @@ class ModelEngine {
   }
 
   private async recordResult(result: AudioResult): Promise<void> {
+    const previousResults = await this.listResults();
+    const previousTakes = result.projectId
+      ? previousResults.filter((item) => item.projectId === result.projectId)
+      : [];
+    const takeNumber = previousTakes.reduce(
+      (highest, item) => Math.max(highest, item.takeNumber ?? 1),
+      0,
+    );
+    result.takeNumber = result.projectId ? takeNumber + 1 : undefined;
     await this.writeResultMetadata(result);
   }
 
@@ -1261,44 +1582,37 @@ class ModelEngine {
 
   private async readBatchCache(projectId: string): Promise<BatchCacheManifest> {
     const filePath = this.batchCachePath(projectId);
-    try {
-      const value: unknown = JSON.parse(await readFile(filePath, "utf8"));
-      if (
-        typeof value === "object" &&
-        value !== null &&
-        "projectId" in value &&
-        value.projectId === projectId &&
-        "segments" in value &&
-        typeof value.segments === "object" &&
-        value.segments !== null
-      ) {
-        return value as BatchCacheManifest;
-      }
-    } catch {
-      // A missing or invalid cache starts clean; generated result files are untouched.
-    }
-    return { projectId, segments: {} };
+    const cache = await readResilientJson(
+      filePath,
+      (value): value is BatchCacheManifest => {
+        if (
+          !isUnknownRecord(value) ||
+          value.projectId !== projectId ||
+          !isUnknownRecord(value.segments)
+        ) {
+          return false;
+        }
+        return Object.values(value.segments).every(
+          (segment) =>
+            isUnknownRecord(segment) &&
+            typeof segment.fingerprint === "string" &&
+            typeof segment.durationSeconds === "number" &&
+            typeof segment.fileId === "string",
+        );
+      },
+    );
+    return cache ?? { projectId, segments: {} };
   }
 
   private async writeBatchCache(cache: BatchCacheManifest): Promise<void> {
-    await mkdir(this.outputRoot, { recursive: true });
-    const target = this.batchCachePath(cache.projectId);
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(cache, null, 2), {
-      encoding: "utf8",
-      flag: "wx",
-    });
-    try {
-      await rename(temporary, target);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await writeResilientJson(this.batchCachePath(cache.projectId), cache);
   }
 
   private async mergeSegments(
     segmentIds: string[],
     resultId: string,
     pauseMs: number,
+    pausesMs?: number[],
   ): Promise<void> {
     const requestPath = path.join(this.outputRoot, `${resultId}.merge.json`);
     const value = {
@@ -1306,6 +1620,8 @@ class ModelEngine {
       inputs: segmentIds.map((id) => path.join(this.outputRoot, `${id}.mp3`)),
       output: path.join(this.outputRoot, `${resultId}.mp3`),
       pauseMs,
+      pausesMs,
+      edgeFadeMs: 12,
     };
     await writeFile(requestPath, JSON.stringify(value), "utf8");
     try {
@@ -1540,7 +1856,11 @@ export class LocalVoiceEngine {
       request.type === "generate"
         ? {
             ...request,
-            request: { ...request.request, requestId: id },
+            request: {
+              ...request.request,
+              requestId: id,
+              projectId: request.projectId ?? request.request.projectId,
+            },
           }
         : {
             ...request,
@@ -1554,8 +1874,7 @@ export class LocalVoiceEngine {
       command.type === "generate-batch" ? command.request.segments.length : 1;
     const task: StoredGenerationTask = {
       id,
-      title:
-        command.type === "generate-batch" ? command.request.title : "单段配音",
+      title: command.request.title,
       kind: command.type === "generate-batch" ? command.request.kind : "single",
       modelId: command.request.modelId,
       status: "queued",
@@ -1583,7 +1902,7 @@ export class LocalVoiceEngine {
     Object.assign(task, {
       status: "queued" as const,
       progress: task.currentSegment > 0 ? task.progress : 0,
-      message: "已重新加入队列；完成的字幕片段会直接复用。",
+      message: "已重新排队；已经生成的句子不会重做。",
       resultId: undefined,
       updatedAt: new Date().toISOString(),
     });
@@ -1746,7 +2065,7 @@ export class LocalVoiceEngine {
 
   private requireEngine(modelId: ModelId): ModelEngine {
     const engine = this.engines.get(modelId);
-    if (!engine) throw new Error("模型编号无效。");
+    if (!engine) throw new Error("找不到这个模型，请重新选择。");
     return engine;
   }
 
@@ -1845,7 +2164,7 @@ export class LocalVoiceEngine {
         } else if (snapshot.status === "stopped") {
           Object.assign(task, {
             status: "canceled" as const,
-            message: "任务已取消；已完成片段和项目稿件仍然保留。",
+            message: "任务已取消；已经生成的句子和项目稿件都已保留。",
             updatedAt: new Date().toISOString(),
           });
         } else {
@@ -1877,6 +2196,7 @@ export class LocalVoiceEngine {
         task.currentSegment = segment
           ? Number(segment[1])
           : task.currentSegment;
+        task.totalSegments = segment ? Number(segment[2]) : task.totalSegments;
         task.updatedAt = new Date().toISOString();
         void this.saveTasks();
         this.emitTask(task);

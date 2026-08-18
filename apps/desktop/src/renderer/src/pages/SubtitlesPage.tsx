@@ -1,13 +1,11 @@
 import {
   Captions,
   FileText,
-  ListChecks,
+  Headphones,
   Mic2,
   Save,
-  Scissors,
   Trash2,
   Upload,
-  Volume2,
 } from "lucide-react";
 import { useEffect, useState, type ChangeEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -21,6 +19,7 @@ import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
+  takeMeaningfulPrefix,
   type BatchGenerationRequest,
   type EngineSnapshot,
   type GenerationProject,
@@ -36,8 +35,10 @@ import {
 
 import { AudioPlayer } from "../components/AudioPlayer";
 import { EngineStatusPanel } from "../components/EngineStatusPanel";
+import { GenerationAssistControls } from "../components/GenerationAssistControls";
 import { ModelLanguageSelect } from "../components/ModelLanguageSelect";
 import { PageHeader } from "../components/PageHeader";
+import { PerformanceControls } from "../components/PerformanceControls";
 import { SectionHeading } from "../components/SectionHeading";
 import { desktopApi } from "../lib/desktopApi";
 import { useStudioStore } from "../store/studioStore";
@@ -107,10 +108,19 @@ export const SubtitlesPage = () => {
   const hasLongSegment = validSegments.some(
     (segment) => segment.text.length > 2_000,
   );
+  const previewText = takeMeaningfulPrefix(
+    validSegments.map((segment) => segment.text).join(" "),
+    30,
+  );
 
   useEffect(() => {
     const requestedId = searchParams.get("project");
-    if (!requestedId) return;
+    if (!requestedId) {
+      const current = useStudioStore.getState();
+      current.setPresetId("longform");
+      current.setPronunciationRules([]);
+      return;
+    }
     void desktopApi.projects.get(requestedId).then((project) => {
       if (!project || project.kind !== "subtitles") return;
       setProjectId(project.id);
@@ -129,6 +139,9 @@ export const SubtitlesPage = () => {
       current.setSelectedModel(project.modelId);
       current.setLanguage(project.language);
       current.setEmotion(project.emotion);
+      current.setExpression(project.expression);
+      current.setPresetId(project.presetId ?? "longform");
+      current.setPronunciationRules(project.pronunciationRules ?? []);
       current.setSpeed(project.speed);
       current.setVolume(project.volume);
       const voiceId = project.segments.find(
@@ -226,12 +239,14 @@ export const SubtitlesPage = () => {
       speed: store.speed,
       volume: store.volume,
       pauseMs: pause,
-      expression: "自然、清晰",
+      expression: store.expression,
       sourceText,
       segments: segments.map((segment) => ({
         ...segment,
         voiceId: store.selectedVoice || undefined,
       })),
+      presetId: store.presetId,
+      pronunciationRules: store.pronunciationRules,
     });
     setProjectId(project.id);
     store.updateProject(project);
@@ -260,6 +275,7 @@ export const SubtitlesPage = () => {
         id: segment.id,
         voiceId: store.selectedVoice,
         text: segment.text.trim(),
+        expression: store.expression,
       })),
       language: store.language,
       emotion: store.emotion,
@@ -272,6 +288,8 @@ export const SubtitlesPage = () => {
         : "字幕配音",
       kind: "subtitles",
       projectId: project.id,
+      presetId: store.presetId,
+      pronunciationRules: store.pronunciationRules,
     };
     const task = await desktopApi.tasks.enqueue({
       type: "generate-batch",
@@ -286,8 +304,33 @@ export const SubtitlesPage = () => {
     });
   };
 
+  const preview = async () => {
+    if (!store.selectedVoice || !previewText || !canGenerate) return;
+    store.setEngine(
+      await desktopApi.engine.command({
+        type: "generate",
+        request: {
+          requestId: `preview-${crypto.randomUUID()}`,
+          title: "字幕试听 30 字",
+          modelId: store.selectedModel,
+          voiceId: store.selectedVoice,
+          text: previewText,
+          expression: store.expression,
+          language: store.language,
+          emotion: store.emotion,
+          speed: store.speed,
+          volume: store.volume,
+          format: "mp3",
+          preview: true,
+          presetId: store.presetId,
+          pronunciationRules: store.pronunciationRules,
+        },
+      }),
+    );
+  };
+
   return (
-    <div className="page-content">
+    <div className="page-content subtitle-page">
       <PageHeader
         title="字幕配音"
         description="适合已有字幕稿或长文：按句生成，再合并为一条完整音轨。"
@@ -303,46 +346,8 @@ export const SubtitlesPage = () => {
         }
       />
 
-      <section className="subtitle-purpose" aria-label="字幕配音功能说明">
-        <div className="subtitle-purpose__lead">
-          <Volume2 className="h-5 w-5" aria-hidden="true" />
-          <span>
-            <strong>一份稿件，一次配完</strong>
-            <small>不识别视频；只把现成的 SRT 或 TXT 变成配音。</small>
-          </span>
-        </div>
-        <div className="subtitle-purpose__features">
-          <span>
-            <Captions className="h-3.5 w-3.5" /> SRT 按字幕块
-          </span>
-          <span>
-            <Scissors className="h-3.5 w-3.5" /> TXT 按句拆分
-          </span>
-          <span>
-            <ListChecks className="h-3.5 w-3.5" /> 同一声音合成
-          </span>
-        </div>
-      </section>
-
-      <ol className="subtitle-steps" aria-label="字幕配音步骤">
-        <li data-active="true">
-          <span>1</span>
-          导入 SRT / TXT
-        </li>
-        <li data-active={validSegments.length > 0}>
-          <span>2</span>
-          逐句检查
-        </li>
-        <li
-          data-active={validSegments.length > 0 && Boolean(store.selectedVoice)}
-        >
-          <span>3</span>
-          合成完整音轨
-        </li>
-      </ol>
-
-      <div className="subtitle-workspace mt-4">
-        <div className="space-y-5 min-w-0">
+      <div className="subtitle-workspace">
+        <div className="subtitle-workspace__main min-w-0">
           <GlassCard tone="solid" padding="lg">
             <SectionHeading
               title="1. 导入稿件"
@@ -376,7 +381,7 @@ export const SubtitlesPage = () => {
               <TextAreaField
                 label="稿件内容"
                 hint={`${sourceText.length.toLocaleString()} / 50,000 字`}
-                className="min-h-[130px]"
+                className="subtitle-source-input"
                 placeholder="也可以直接把长文粘贴到这里，会自动按标点和换行拆句…"
                 value={sourceText}
                 maxLength={50_000}
@@ -451,65 +456,85 @@ export const SubtitlesPage = () => {
           </GlassCard>
         </div>
 
-        <GlassCard tone="solid" padding="lg">
+        <GlassCard tone="solid" padding="lg" className="subtitle-settings-card">
           <SectionHeading
             title="3. 生成设置"
             description="全部句子使用同一个声音，最后合并为一个 MP3。"
           />
-          <div className="mt-4 space-y-4">
-            <SelectField
-              label="本地模型"
-              value={store.selectedModel}
-              onChange={(event) => {
-                const modelId = event.target.value as ModelId;
-                store.setSelectedModel(modelId);
-                if (!MODEL_LANGUAGE_SUPPORT[modelId].includes(store.language)) {
-                  store.setLanguage("auto");
-                }
-              }}
-            >
-              {MODEL_CATALOG.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
-                </option>
-              ))}
-            </SelectField>
-            <ModelLanguageSelect
-              modelId={store.selectedModel}
-              value={store.language}
-              onChange={store.setLanguage}
-            />
-            {store.voiceProfiles.length > 0 ? (
+          <div className="subtitle-settings">
+            <div className="subtitle-settings__grid">
               <SelectField
-                label="统一声音"
-                value={store.selectedVoice}
-                onChange={(event) => store.setSelectedVoice(event.target.value)}
+                label="本地模型"
+                value={store.selectedModel}
+                onChange={(event) => {
+                  const modelId = event.target.value as ModelId;
+                  store.setSelectedModel(modelId);
+                  if (
+                    !MODEL_LANGUAGE_SUPPORT[modelId].includes(store.language)
+                  ) {
+                    store.setLanguage("auto");
+                  }
+                }}
               >
-                {store.voiceProfiles.map((voice) => (
-                  <option key={voice.id} value={voice.id}>
-                    {voice.name}
+                {MODEL_CATALOG.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
                   </option>
                 ))}
               </SelectField>
-            ) : (
-              <div className="subtitle-voice-empty">
-                <Mic2 className="h-4 w-4" />
-                <span>还没有声音</span>
-                <Link to="/voices?clone=1">去克隆</Link>
-              </div>
-            )}
-            <SliderField
-              label="每句停顿"
-              valueLabel={`${pause} 毫秒`}
-              min={0}
-              max={1_200}
-              step={20}
-              value={pause}
-              onChange={(event) => setPause(Number(event.target.value))}
+              <ModelLanguageSelect
+                modelId={store.selectedModel}
+                value={store.language}
+                onChange={store.setLanguage}
+              />
+            </div>
+            <GenerationAssistControls
+              modelId={store.selectedModel}
+              language={store.language}
+              presetId={store.presetId}
+              rules={store.pronunciationRules}
+              onPresetChange={store.setPresetId}
+              onRulesChange={store.setPronunciationRules}
             />
-            <div className="output-format-row">
-              <span>输出文件</span>
-              <strong>完整 MP3</strong>
+            <PerformanceControls
+              modelId={store.selectedModel}
+              language={store.language}
+              emotion={store.emotion}
+              expression={store.expression}
+              onEmotionChange={store.setEmotion}
+              onExpressionChange={store.setExpression}
+            />
+            <div className="subtitle-settings__grid">
+              {store.voiceProfiles.length > 0 ? (
+                <SelectField
+                  label="统一声音"
+                  value={store.selectedVoice}
+                  onChange={(event) =>
+                    store.setSelectedVoice(event.target.value)
+                  }
+                >
+                  {store.voiceProfiles.map((voice) => (
+                    <option key={voice.id} value={voice.id}>
+                      {voice.name}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : (
+                <div className="subtitle-voice-empty">
+                  <Mic2 className="h-4 w-4" />
+                  <span>还没有声音</span>
+                  <Link to="/voices?clone=1">去克隆</Link>
+                </div>
+              )}
+              <SliderField
+                label="每句停顿"
+                valueLabel={`${pause} 毫秒`}
+                min={0}
+                max={1_200}
+                step={20}
+                value={pause}
+                onChange={(event) => setPause(Number(event.target.value))}
+              />
             </div>
             {!canGenerate ? (
               <EngineStatusPanel
@@ -519,33 +544,44 @@ export const SubtitlesPage = () => {
               />
             ) : null}
           </div>
-          <div className="batch-summary">
-            <ListChecks className="h-4 w-4" />
-            <span>
-              {validSegments.length} 句将按顺序生成，并合并为 1 个 MP3
-            </span>
+          {previewText ? (
+            <div className="preview-scope">
+              <Headphones className="h-3.5 w-3.5" />
+              <span>试听前 30 个字：</span>
+              <mark>{previewText}</mark>
+            </div>
+          ) : null}
+          <div className="batch-generate-actions">
+            <Button
+              variant="secondary"
+              disabled={!previewText || !store.selectedVoice || !canGenerate}
+              onClick={() => void preview()}
+            >
+              <Headphones className="h-4 w-4" />
+              试听 30 字
+            </Button>
+            <Button
+              disabled={
+                validSegments.length === 0 ||
+                !store.selectedVoice ||
+                !canGenerate ||
+                isOverLimit ||
+                hasLongSegment
+              }
+              onClick={() => void generate()}
+            >
+              {snapshot.status === "generating"
+                ? "正在逐句生成…"
+                : "生成完整音轨"}
+            </Button>
           </div>
-          <Button
-            fullWidth
-            className="mt-3"
-            disabled={
-              validSegments.length === 0 ||
-              !store.selectedVoice ||
-              !canGenerate ||
-              isOverLimit ||
-              hasLongSegment
-            }
-            onClick={() => void generate()}
-          >
-            {snapshot.status === "generating"
-              ? "正在逐句生成…"
-              : "生成完整音轨"}
-          </Button>
-          {snapshot.result?.kind === "subtitles" ? (
+          {snapshot.result?.preview || snapshot.result?.kind === "subtitles" ? (
             <div className="mt-4">
               <AudioPlayer
                 result={snapshot.result}
-                onRegenerate={() => void generate()}
+                onRegenerate={() =>
+                  void (snapshot.result?.preview ? preview() : generate())
+                }
               />
             </div>
           ) : null}

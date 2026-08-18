@@ -1,11 +1,11 @@
 import {
+  AudioLines,
   CircleStop,
   Headphones,
   Mic2,
   Play,
   Plus,
   Save,
-  WandSparkles,
 } from "lucide-react";
 import { useEffect, useState, type CSSProperties } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -14,6 +14,10 @@ import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
+  SINGLE_GENERATION_TEXT_LIMITS,
+  countMeaningfulCharacters,
+  createTitleFromText,
+  takeMeaningfulPrefix,
   type EngineSnapshot,
   type GenerationProject,
   type GenerationRequest,
@@ -30,9 +34,12 @@ import {
 import { AudioPlayer } from "../components/AudioPlayer";
 import { EngineStatusPanel } from "../components/EngineStatusPanel";
 import { FirstRunGuide } from "../components/FirstRunGuide";
+import { GenerationAssistControls } from "../components/GenerationAssistControls";
 import { ModelLanguageSelect } from "../components/ModelLanguageSelect";
 import { PageHeader } from "../components/PageHeader";
+import { PerformanceControls } from "../components/PerformanceControls";
 import { SectionHeading } from "../components/SectionHeading";
+import { SmartTextAssistant } from "../components/SmartTextAssistant";
 import { desktopApi } from "../lib/desktopApi";
 import { useStudioStore } from "../store/studioStore";
 
@@ -48,7 +55,7 @@ export const GeneratePage = () => {
   const store = useStudioStore();
   const [searchParams] = useSearchParams();
   const [projectId, setProjectId] = useState("");
-  const [projectTitle, setProjectTitle] = useState("单段配音项目");
+  const [projectTitle, setProjectTitle] = useState("");
   const snapshot =
     store.engines[store.selectedModel] ??
     store.engine ??
@@ -63,6 +70,10 @@ export const GeneratePage = () => {
     "stopped",
   ].includes(snapshot.status);
   const hasText = Boolean(store.text.trim());
+  const textLimit = SINGLE_GENERATION_TEXT_LIMITS[store.selectedModel];
+  const textCharacterCount = countMeaningfulCharacters(store.text);
+  const textTooLong = textCharacterCount > textLimit;
+  const previewText = takeMeaningfulPrefix(store.text, 30);
   const guideAction = !canGenerate ? (
     <Link to="/models">去下载模型</Link>
   ) : !selectedVoice ? (
@@ -80,7 +91,12 @@ export const GeneratePage = () => {
 
   useEffect(() => {
     const requestedId = searchParams.get("project");
-    if (!requestedId) return;
+    if (!requestedId) {
+      const current = useStudioStore.getState();
+      current.setPresetId("natural");
+      current.setPronunciationRules([]);
+      return;
+    }
     void desktopApi.projects.get(requestedId).then((project) => {
       if (!project || project.kind !== "single") return;
       setProjectId(project.id);
@@ -93,6 +109,8 @@ export const GeneratePage = () => {
       current.setEmotion(project.emotion);
       current.setSpeed(project.speed);
       current.setVolume(project.volume);
+      current.setPresetId(project.presetId ?? "natural");
+      current.setPronunciationRules(project.pronunciationRules ?? []);
       const voiceId = project.segments[0]?.voiceId;
       if (voiceId) current.setSelectedVoice(voiceId);
     });
@@ -103,9 +121,19 @@ export const GeneratePage = () => {
       store.pushToast({ title: "先输入要配音的文字", tone: "warning" });
       return null;
     }
+    if (textTooLong) {
+      store.pushToast({
+        title: `这段文字超过 ${textLimit.toLocaleString("zh-CN")} 字`,
+        description: "请删短一些，或改用字幕配音分句生成。",
+        tone: "warning",
+      });
+      return null;
+    }
+    const resolvedTitle =
+      projectTitle.trim() || createTitleFromText(store.text);
     const project = await desktopApi.projects.save({
       id: projectId || undefined,
-      title: projectTitle.trim() || "单段配音项目",
+      title: resolvedTitle,
       kind: "single",
       modelId: store.selectedModel,
       language: store.language,
@@ -122,13 +150,16 @@ export const GeneratePage = () => {
           voiceId: store.selectedVoice || undefined,
         },
       ],
+      presetId: store.presetId,
+      pronunciationRules: store.pronunciationRules,
     });
     setProjectId(project.id);
+    setProjectTitle(project.title);
     store.updateProject(project);
     return project;
   };
 
-  const generate = async (previewOnly = false) => {
+  const generate = async () => {
     if (!selectedVoice) {
       store.pushToast({
         title: "先克隆一个声音",
@@ -141,10 +172,18 @@ export const GeneratePage = () => {
       store.pushToast({ title: "先输入要说的话", tone: "warning" });
       return;
     }
+    if (textTooLong) {
+      store.pushToast({
+        title: `最多输入 ${textLimit.toLocaleString("zh-CN")} 个字`,
+        description: `当前有 ${textCharacterCount.toLocaleString("zh-CN")} 个字，空格和空行没有计入。`,
+        tone: "warning",
+      });
+      return;
+    }
     if (!canGenerate) {
       store.pushToast({
-        title: "先准备本地引擎",
-        description: "点击右侧“下载并使用”即可继续。",
+        title: "先下载当前模型",
+        description: "打开“本地引擎”，点击当前模型的“下载并使用”。",
         tone: "info",
       });
       return;
@@ -153,20 +192,18 @@ export const GeneratePage = () => {
     if (!project) return;
     const request: GenerationRequest = {
       requestId: crypto.randomUUID(),
+      title: project.title,
       modelId: store.selectedModel,
       voiceId: store.selectedVoice,
-      text: previewOnly
-        ? store.text
-            .split(/[。！？!?]/u)
-            .slice(0, 2)
-            .join("。")
-        : store.text,
+      text: store.text,
       expression: store.expression,
       language: store.language,
       emotion: store.emotion,
       speed: store.speed,
       volume: store.volume,
       format: store.format,
+      presetId: store.presetId,
+      pronunciationRules: store.pronunciationRules,
     };
     const task = await desktopApi.tasks.enqueue({
       type: "generate",
@@ -179,6 +216,44 @@ export const GeneratePage = () => {
       description: "可以继续准备下一份稿件，任务会依次生成。",
       tone: "success",
     });
+  };
+
+  const preview = async () => {
+    if (!selectedVoice || !previewText || !canGenerate || textTooLong) return;
+    const textArea =
+      document.querySelector<HTMLTextAreaElement>("#script-text");
+    if (textArea) {
+      let meaningful = 0;
+      let end = 0;
+      for (const character of store.text) {
+        end += character.length;
+        if (!/\s/u.test(character)) meaningful += 1;
+        if (meaningful >= 30) break;
+      }
+      textArea.focus();
+      textArea.setSelectionRange(0, end);
+    }
+    store.setEngine(
+      await desktopApi.engine.command({
+        type: "generate",
+        request: {
+          requestId: `preview-${crypto.randomUUID()}`,
+          title: "30 字试听",
+          modelId: store.selectedModel,
+          voiceId: store.selectedVoice,
+          text: previewText,
+          expression: store.expression,
+          language: store.language,
+          emotion: store.emotion,
+          speed: store.speed,
+          volume: store.volume,
+          format: store.format,
+          preview: true,
+          presetId: store.presetId,
+          pronunciationRules: store.pronunciationRules,
+        },
+      }),
+    );
   };
 
   const changeModel = (modelId: ModelId) => {
@@ -206,7 +281,7 @@ export const GeneratePage = () => {
         actions={
           <Button
             variant="secondary"
-            disabled={!store.text.trim()}
+            disabled={!store.text.trim() || textTooLong}
             onClick={() => void saveProject()}
           >
             <Save className="h-4 w-4" />
@@ -221,7 +296,7 @@ export const GeneratePage = () => {
           aria-label="项目名称"
           value={projectTitle}
           maxLength={120}
-          placeholder="给这次配音起个名字"
+          placeholder="不填会自动使用文稿开头命名"
           onChange={(event) => setProjectTitle(event.target.value)}
         />
       </label>
@@ -241,7 +316,7 @@ export const GeneratePage = () => {
           {
             label: "输入文字",
             description: hasText
-              ? `${store.text.length} 个字`
+              ? `${textCharacterCount} 个字`
               : "粘贴口播或台词",
             complete: hasText,
           },
@@ -311,9 +386,24 @@ export const GeneratePage = () => {
             <SectionHeading
               title="2. 输入文字"
               action={
-                <span className="text-[11px] font-semibold text-[#78879a]">
-                  {store.text.length.toLocaleString()} / 20,000
-                </span>
+                <div className="smart-script-heading-actions">
+                  <span className="text-[11px] font-semibold text-[#78879a]">
+                    {textCharacterCount.toLocaleString()} /{" "}
+                    {textLimit.toLocaleString()} 字
+                  </span>
+                  <SmartTextAssistant
+                    compact
+                    text={store.text}
+                    targetId="script-text"
+                    modelId={store.selectedModel}
+                    language={store.language}
+                    pronunciationRules={store.pronunciationRules}
+                    onChange={store.setText}
+                    onExpressionChange={store.setExpression}
+                    onEmotionChange={store.setEmotion}
+                    onPronunciationRulesChange={store.setPronunciationRules}
+                  />
+                </div>
               }
             />
             <div className="mt-4">
@@ -323,19 +413,32 @@ export const GeneratePage = () => {
                 hint="Ctrl + Enter 生成"
                 className="generate-script-input"
                 value={store.text}
-                maxLength={20_000}
+                maxLength={50_000}
                 placeholder="在这里粘贴口播、旁白或台词…"
                 onChange={(event) => store.setText(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.ctrlKey && event.key === "Enter") {
-                    void generate(false);
+                    void generate();
                   }
                 }}
               />
             </div>
-            <p className="mt-3 text-[11px] font-medium leading-5 text-[#78879a]">
-              当前模型会根据文字内容和标点自动调整语气。
+            <p
+              className={`mt-3 text-[11px] font-medium leading-5 ${
+                textTooLong ? "text-[#d95b5b]" : "text-[#78879a]"
+              }`}
+            >
+              {textTooLong
+                ? `已超出 ${(textCharacterCount - textLimit).toLocaleString()} 字，请删短后再生成。`
+                : "空格和空行不计字数；较长文稿会自动分段后合成。"}
             </p>
+            {previewText ? (
+              <div className="preview-scope" aria-live="polite">
+                <Headphones className="h-3.5 w-3.5" />
+                <span>试听前 30 个字：</span>
+                <mark>{previewText}</mark>
+              </div>
+            ) : null}
           </GlassCard>
         </div>
 
@@ -355,44 +458,58 @@ export const GeneratePage = () => {
                 value={store.speed}
                 onChange={(event) => store.setSpeed(Number(event.target.value))}
               />
-              <EngineStatusPanel
-                snapshot={snapshot}
-                modelId={store.selectedModel}
-                onChanged={store.setEngine}
-              />
+              {canGenerate ? null : (
+                <EngineStatusPanel
+                  snapshot={snapshot}
+                  modelId={store.selectedModel}
+                  onChanged={store.setEngine}
+                />
+              )}
 
-              {snapshot.result ? null : (
-                <div className="generate-actions generate-actions--primary">
-                  <Button
-                    variant="secondary"
-                    disabled={
-                      !selectedVoice ||
-                      !canGenerate ||
-                      snapshot.status === "generating"
-                    }
-                    onClick={() => void generate(true)}
-                  >
-                    <Headphones className="h-4 w-4" />
-                    试听一小段
+              <div className="generate-actions generate-actions--primary">
+                {snapshot.jobId &&
+                ["loading", "generating"].includes(snapshot.status) ? (
+                  <Button variant="danger" onClick={() => void cancel()}>
+                    <CircleStop className="h-4 w-4" />
+                    停止
                   </Button>
-                  {snapshot.jobId &&
-                  ["loading", "generating"].includes(snapshot.status) ? (
-                    <Button variant="danger" onClick={() => void cancel()}>
-                      <CircleStop className="h-4 w-4" />
-                      停止
-                    </Button>
-                  ) : (
+                ) : (
+                  <>
                     <Button
-                      disabled={!selectedVoice || !canGenerate}
-                      title={canGenerate ? "生成完整配音" : "请先准备本地引擎"}
-                      onClick={() => void generate(false)}
+                      variant="secondary"
+                      disabled={
+                        !selectedVoice ||
+                        !canGenerate ||
+                        !hasText ||
+                        textTooLong
+                      }
+                      onClick={() => void preview()}
+                    >
+                      <Headphones className="h-4 w-4" />
+                      试听 30 字
+                    </Button>
+                    <Button
+                      disabled={
+                        !selectedVoice ||
+                        !canGenerate ||
+                        !hasText ||
+                        textTooLong
+                      }
+                      title={
+                        textTooLong
+                          ? `最多输入 ${textLimit.toLocaleString()} 个字`
+                          : canGenerate
+                            ? "生成完整配音"
+                            : "请先下载当前模型"
+                      }
+                      onClick={() => void generate()}
                     >
                       <Play className="h-4 w-4 fill-current" />
                       生成配音
                     </Button>
-                  )}
-                </div>
-              )}
+                  </>
+                )}
+              </div>
 
               <section
                 className="model-settings-panel"
@@ -406,7 +523,7 @@ export const GeneratePage = () => {
                 </strong>
                 <div className="model-settings-panel__selects">
                   <SelectField
-                    label="本地引擎"
+                    label="本地模型"
                     value={store.selectedModel}
                     onChange={(event) =>
                       changeModel(event.target.value as ModelId)
@@ -424,6 +541,23 @@ export const GeneratePage = () => {
                     onChange={store.setLanguage}
                   />
                 </div>
+                <GenerationAssistControls
+                  modelId={store.selectedModel}
+                  language={store.language}
+                  presetId={store.presetId}
+                  rules={store.pronunciationRules}
+                  onPresetChange={store.setPresetId}
+                  onRulesChange={store.setPronunciationRules}
+                />
+                <PerformanceControls
+                  compact
+                  modelId={store.selectedModel}
+                  language={store.language}
+                  emotion={store.emotion}
+                  expression={store.expression}
+                  onEmotionChange={store.setEmotion}
+                  onExpressionChange={store.setExpression}
+                />
                 <div className="model-settings-panel__bottom">
                   <SliderField
                     label="音量"
@@ -436,10 +570,6 @@ export const GeneratePage = () => {
                       store.setVolume(Number(event.target.value))
                     }
                   />
-                  <div className="output-format-row">
-                    <span>格式</span>
-                    <strong>MP3</strong>
-                  </div>
                 </div>
               </section>
             </div>
@@ -448,13 +578,15 @@ export const GeneratePage = () => {
           {snapshot.result ? (
             <AudioPlayer
               result={snapshot.result}
-              onRegenerate={() => void generate(false)}
+              onRegenerate={() =>
+                void (snapshot.result?.preview ? preview() : generate())
+              }
             />
           ) : snapshot.jobId &&
             ["loading", "generating"].includes(snapshot.status) ? (
             <GlassCard tone="soft" padding="lg" className="generation-callout">
               <span className="generation-callout__orb">
-                <WandSparkles className="h-6 w-6" />
+                <AudioLines className="h-6 w-6" />
               </span>
               <div className="min-w-0 flex-1">
                 <h3>

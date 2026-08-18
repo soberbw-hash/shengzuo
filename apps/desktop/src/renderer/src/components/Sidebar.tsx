@@ -3,7 +3,6 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@ai-voice-studio/ui";
 
 import {
-  helpRoute,
   primaryRoutes,
   settingsRoute,
   toolRoutes,
@@ -49,17 +48,16 @@ export const Sidebar = () => {
           <RouteLink key={route.path} route={route} />
         ))}
 
-        <div className="nav-section-label">更多功能</div>
+        <div className="nav-section-label">模型</div>
         <div className="space-y-1">
           {toolRoutes.map((route) => (
-            <RouteLink key={route.path} route={route} compact />
+            <RouteLink key={route.path} route={route} />
           ))}
         </div>
       </nav>
 
       <div className="mt-auto space-y-1">
         <RouteLink route={settingsRoute} compact />
-        <RouteLink route={helpRoute} compact />
       </div>
     </aside>
   );

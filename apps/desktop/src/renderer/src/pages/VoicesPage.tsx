@@ -1,12 +1,23 @@
 import {
+  AudioLines,
+  Check,
   CheckCircle2,
   Mic2,
+  Pause,
+  Pencil,
+  Play,
   Plus,
-  Sparkles,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
-import { useEffect, useState, type CSSProperties, type DragEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type {
   VoiceProfile,
@@ -35,6 +46,7 @@ export const VoicesPage = () => {
   const [voiceName, setVoiceName] = useState("我的声音");
   const [sampleName, setSampleName] = useState("");
   const [sampleToken, setSampleToken] = useState("");
+  const [samplePreviewUrl, setSamplePreviewUrl] = useState("");
   const [sampleQuality, setSampleQuality] = useState<VoiceSampleQuality | null>(
     null,
   );
@@ -44,6 +56,20 @@ export const VoicesPage = () => {
   const [draggingSample, setDraggingSample] = useState(false);
   const [voiceToRemove, setVoiceToRemove] = useState<VoiceProfile | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
+  const [editingVoiceId, setEditingVoiceId] = useState("");
+  const [editingVoiceName, setEditingVoiceName] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [sampleVoice, setSampleVoice] = useState<VoiceProfile | null>(null);
+  const [managedSampleName, setManagedSampleName] = useState("");
+  const [managedSampleToken, setManagedSampleToken] = useState("");
+  const [managedSamplePreviewUrl, setManagedSamplePreviewUrl] = useState("");
+  const [managedReferenceText, setManagedReferenceText] = useState("");
+  const [managedSampleQuality, setManagedSampleQuality] =
+    useState<VoiceSampleQuality | null>(null);
+  const [managedSampleBusy, setManagedSampleBusy] = useState(false);
+  const [managedSampleDragging, setManagedSampleDragging] = useState(false);
+  const voicePreviewRef = useRef<HTMLAudioElement>(null);
+  const [previewingVoiceId, setPreviewingVoiceId] = useState("");
 
   useEffect(() => {
     if (new URLSearchParams(location.search).get("clone") === "1") {
@@ -60,6 +86,7 @@ export const VoicesPage = () => {
     if (selection.canceled) return;
     setSampleName(selection.fileName ?? "已选择录音");
     setSampleToken(selection.sampleToken ?? "");
+    setSamplePreviewUrl(selection.previewUrl ?? "");
     setSampleQuality(selection.quality ?? null);
   };
 
@@ -104,6 +131,7 @@ export const VoicesPage = () => {
       store.setSelectedVoice(voice.id);
       setSampleName("");
       setSampleToken("");
+      setSamplePreviewUrl("");
       setSampleQuality(null);
       setReferenceText("");
       setVoiceName("我的声音");
@@ -145,8 +173,190 @@ export const VoicesPage = () => {
     }
   };
 
+  const startRename = (voice: VoiceProfile) => {
+    setEditingVoiceId(voice.id);
+    setEditingVoiceName(voice.name);
+  };
+
+  const cancelRename = () => {
+    if (renameBusy) return;
+    setEditingVoiceId("");
+    setEditingVoiceName("");
+  };
+
+  const renameVoice = async (voice: VoiceProfile) => {
+    const name = editingVoiceName.trim();
+    if (!name || renameBusy) return;
+    if (name === voice.name) {
+      cancelRename();
+      return;
+    }
+    setRenameBusy(true);
+    try {
+      const updated = await desktopApi.voices.rename({
+        voiceId: voice.id,
+        name,
+      });
+      store.updateVoiceProfile(updated);
+      setEditingVoiceId("");
+      setEditingVoiceName("");
+      store.pushToast({ title: "声音名称已修改", tone: "success" });
+    } catch (error) {
+      store.pushToast({
+        title: "声音名称没有修改成功",
+        description: error instanceof Error ? error.message : "请稍后重试。",
+        tone: "danger",
+      });
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+
+  const openSampleManager = (voice: VoiceProfile) => {
+    setSampleVoice(voice);
+    setManagedSampleName("");
+    setManagedSampleToken("");
+    setManagedSamplePreviewUrl("");
+    setManagedReferenceText("");
+    setManagedSampleQuality(null);
+  };
+
+  const loadManagedSample = async (
+    selection: Promise<VoiceSampleSelection>,
+  ) => {
+    if (managedSampleBusy) return;
+    setManagedSampleBusy(true);
+    try {
+      const selected = await selection;
+      if (selected.canceled) return;
+      setManagedSampleName(selected.fileName ?? "已选择录音");
+      setManagedSampleToken(selected.sampleToken ?? "");
+      setManagedSamplePreviewUrl(selected.previewUrl ?? "");
+      setManagedSampleQuality(selected.quality ?? null);
+    } catch (error) {
+      store.pushToast({
+        title: "没有选中录音",
+        description:
+          error instanceof Error ? error.message : "请换一个音频文件。",
+        tone: "warning",
+      });
+    } finally {
+      setManagedSampleBusy(false);
+    }
+  };
+
+  const addManagedSample = async () => {
+    if (
+      !sampleVoice ||
+      !managedSampleToken ||
+      !managedReferenceText.trim() ||
+      managedSampleBusy
+    )
+      return;
+    setManagedSampleBusy(true);
+    try {
+      const updated = await desktopApi.voices.addSample({
+        voiceId: sampleVoice.id,
+        sampleToken: managedSampleToken,
+        referenceText: managedReferenceText.trim(),
+      });
+      store.updateVoiceProfile(updated);
+      setSampleVoice(updated);
+      setManagedSampleName("");
+      setManagedSampleToken("");
+      setManagedSamplePreviewUrl("");
+      setManagedReferenceText("");
+      setManagedSampleQuality(null);
+      store.pushToast({
+        title: "参考录音已添加并选中",
+        tone: "success",
+      });
+    } catch (error) {
+      store.pushToast({
+        title: "参考录音没有添加成功",
+        description: error instanceof Error ? error.message : "请稍后重试。",
+        tone: "danger",
+      });
+    } finally {
+      setManagedSampleBusy(false);
+    }
+  };
+
+  const selectManagedSample = async (sampleId: string) => {
+    if (!sampleVoice || managedSampleBusy) return;
+    setManagedSampleBusy(true);
+    try {
+      const updated = await desktopApi.voices.selectSampleForVoice({
+        voiceId: sampleVoice.id,
+        sampleId,
+      });
+      store.updateVoiceProfile(updated);
+      setSampleVoice(updated);
+    } catch (error) {
+      store.pushToast({
+        title: "参考录音没有切换成功",
+        description: error instanceof Error ? error.message : "请稍后重试。",
+        tone: "danger",
+      });
+    } finally {
+      setManagedSampleBusy(false);
+    }
+  };
+
+  const removeManagedSample = async (sampleId: string, sampleName: string) => {
+    if (!sampleVoice || managedSampleBusy) return;
+    if (!window.confirm(`删除参考录音“${sampleName}”？`)) return;
+    setManagedSampleBusy(true);
+    try {
+      const updated = await desktopApi.voices.removeSample({
+        voiceId: sampleVoice.id,
+        sampleId,
+      });
+      store.updateVoiceProfile(updated);
+      setSampleVoice(updated);
+    } catch (error) {
+      store.pushToast({
+        title: "参考录音没有删除成功",
+        description: error instanceof Error ? error.message : "请稍后重试。",
+        tone: "danger",
+      });
+    } finally {
+      setManagedSampleBusy(false);
+    }
+  };
+
+  const toggleVoicePreview = async (voice: VoiceProfile) => {
+    const audio = voicePreviewRef.current;
+    if (!audio || !voice.previewUrl) return;
+    if (previewingVoiceId === voice.id && !audio.paused) {
+      audio.pause();
+      setPreviewingVoiceId("");
+      return;
+    }
+    try {
+      audio.src = voice.previewUrl;
+      await audio.play();
+      setPreviewingVoiceId(voice.id);
+    } catch {
+      setPreviewingVoiceId("");
+      store.pushToast({
+        title: "这段参考录音暂时无法播放",
+        description: "请打开参考录音管理，确认文件仍然存在。",
+        tone: "warning",
+      });
+    }
+  };
+
   return (
     <div className="page-content">
+      <audio
+        ref={voicePreviewRef}
+        preload="metadata"
+        onEnded={() => setPreviewingVoiceId("")}
+        onPause={() => {
+          if (voicePreviewRef.current?.ended) setPreviewingVoiceId("");
+        }}
+      />
       <PageHeader
         title="我的声音"
         description="选择、创建或删除声音。"
@@ -164,7 +374,7 @@ export const VoicesPage = () => {
         </span>
         <div className="min-w-0 flex-1">
           <strong>准备 3–30 秒清晰人声</strong>
-          <p>只保留一个人说话，并填写录音中对应的原文。</p>
+          <p>录音里只要一个人说话；下面填写录音中实际说的文字。</p>
         </div>
         <Button variant="secondary" onClick={() => setCloneOpen(true)}>
           开始克隆
@@ -189,12 +399,65 @@ export const VoicesPage = () => {
                   <i />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3>{voice.name}</h3>
+                  <div className="voice-card__title-row">
+                    {editingVoiceId === voice.id ? (
+                      <form
+                        className="voice-name-editor"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void renameVoice(voice);
+                        }}
+                      >
+                        <input
+                          autoFocus
+                          aria-label={`修改声音名称 ${voice.name}`}
+                          value={editingVoiceName}
+                          maxLength={24}
+                          disabled={renameBusy}
+                          onChange={(event) =>
+                            setEditingVoiceName(event.target.value)
+                          }
+                          onKeyDown={(event) => {
+                            if (event.key === "Escape") cancelRename();
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          aria-label="保存声音名称"
+                          disabled={!editingVoiceName.trim() || renameBusy}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="取消修改声音名称"
+                          disabled={renameBusy}
+                          onClick={cancelRename}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </form>
+                    ) : (
+                      <>
+                        <h3>{voice.name}</h3>
+                        <button
+                          type="button"
+                          className="voice-rename-button"
+                          aria-label={`重命名声音 ${voice.name}`}
+                          title="重命名"
+                          onClick={() => startRename(voice)}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </>
+                    )}
                     <StatusBadge tone="success">本地克隆</StatusBadge>
                   </div>
                   <p>{voice.description}</p>
-                  <small>{voice.model}</small>
+                  <small>
+                    {voice.model} · {voice.referenceSamples?.length ?? 1}{" "}
+                    段参考录音
+                  </small>
                 </div>
               </div>
               <div className="voice-card__actions">
@@ -212,6 +475,31 @@ export const VoicesPage = () => {
                   {store.selectedVoice === voice.id
                     ? "已选中，去创作"
                     : "用这个声音创作"}
+                </Button>
+                <Button
+                  className="voice-card-preview-action"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!voice.previewUrl}
+                  aria-label={`试听声音 ${voice.name}`}
+                  title="试听当前参考录音"
+                  onClick={() => void toggleVoicePreview(voice)}
+                >
+                  {previewingVoiceId === voice.id ? (
+                    <Pause className="h-4 w-4" />
+                  ) : (
+                    <Play className="h-4 w-4" />
+                  )}
+                  {previewingVoiceId === voice.id ? "暂停" : "试听"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  aria-label={`管理 ${voice.name} 的参考录音`}
+                  title="参考录音"
+                  onClick={() => openSampleManager(voice)}
+                >
+                  <AudioLines className="h-4 w-4" />
                 </Button>
                 <Button
                   size="sm"
@@ -255,7 +543,7 @@ export const VoicesPage = () => {
               }
               onClick={() => void createVoice()}
             >
-              <Sparkles className="h-4 w-4" />
+              <Mic2 className="h-4 w-4" />
               {busy ? "正在保存…" : "创建声音"}
             </Button>
           </>
@@ -313,6 +601,12 @@ export const VoicesPage = () => {
               {checkingSample ? "正在检查…" : "选择音频"}
             </button>
           </div>
+          {samplePreviewUrl ? (
+            <div className="sample-audio-preview">
+              <strong>先听一下，确认选对录音</strong>
+              <audio controls preload="metadata" src={samplePreviewUrl} />
+            </div>
+          ) : null}
           <TextField
             label="声音名称"
             value={voiceName}
@@ -324,7 +618,7 @@ export const VoicesPage = () => {
             hint={`${referenceText.length} / 1,000`}
             value={referenceText}
             maxLength={1_000}
-            placeholder="请按录音内容逐字填写；原文越准确，克隆越像。"
+            placeholder="请填写录音里实际说的文字"
             onChange={(event) => setReferenceText(event.target.value)}
           />
           {sampleQuality ? (
@@ -359,6 +653,170 @@ export const VoicesPage = () => {
               ) : null}
             </div>
           ) : null}
+        </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(sampleVoice)}
+        title={`${sampleVoice?.name ?? "声音"}的参考录音`}
+        description="标记为“当前使用”的录音会用于配音，可以随时切换。"
+        onClose={() => {
+          if (!managedSampleBusy) setSampleVoice(null);
+        }}
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={managedSampleBusy}
+              onClick={() => setSampleVoice(null)}
+            >
+              完成
+            </Button>
+            <Button
+              disabled={
+                !managedSampleToken ||
+                !managedReferenceText.trim() ||
+                managedSampleBusy ||
+                (sampleVoice?.referenceSamples?.length ?? 1) >= 5
+              }
+              onClick={() => void addManagedSample()}
+            >
+              <Plus className="h-4 w-4" />
+              {managedSampleBusy ? "正在保存…" : "添加并选中"}
+            </Button>
+          </>
+        }
+      >
+        <div className="voice-sample-manager">
+          <div className="voice-sample-list">
+            {(sampleVoice?.referenceSamples ?? []).map((sample) => (
+              <div key={sample.id} data-active={sample.active}>
+                <span className="voice-sample-list__icon">
+                  <AudioLines className="h-4 w-4" />
+                </span>
+                <span>
+                  <strong>{sample.name}</strong>
+                  <small>{sample.active ? "当前使用" : "备用录音"}</small>
+                </span>
+                {sample.active ? (
+                  <StatusBadge tone="success">已选中</StatusBadge>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={managedSampleBusy}
+                    onClick={() => void selectManagedSample(sample.id)}
+                  >
+                    使用
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="voice-sample-remove"
+                  aria-label={`删除参考录音 ${sample.name}`}
+                  disabled={
+                    managedSampleBusy ||
+                    (sampleVoice?.referenceSamples?.length ?? 1) <= 1
+                  }
+                  onClick={() =>
+                    void removeManagedSample(sample.id, sample.name)
+                  }
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {(sampleVoice?.referenceSamples?.length ?? 1) < 5 ? (
+            <>
+              <div
+                className="clone-upload"
+                data-dragging={managedSampleDragging}
+                onDragEnter={(event) => {
+                  event.preventDefault();
+                  if (event.dataTransfer.types.includes("Files")) {
+                    setManagedSampleDragging(true);
+                  }
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "copy";
+                }}
+                onDragLeave={(event) => {
+                  if (
+                    !event.currentTarget.contains(event.relatedTarget as Node)
+                  ) {
+                    setManagedSampleDragging(false);
+                  }
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  setManagedSampleDragging(false);
+                  const file = event.dataTransfer.files.item(0);
+                  if (file) {
+                    void loadManagedSample(
+                      desktopApi.voices.selectDroppedSample(file),
+                    );
+                  }
+                }}
+              >
+                <span className="clone-upload__icon">
+                  {managedSampleName ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <Upload className="h-5 w-5" />
+                  )}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <strong>{managedSampleName || "添加另一段参考录音"}</strong>
+                  <p>点击选择或直接拖入音频。</p>
+                </div>
+                <button
+                  type="button"
+                  className="file-button"
+                  disabled={managedSampleBusy}
+                  onClick={() =>
+                    void loadManagedSample(desktopApi.voices.selectSample())
+                  }
+                >
+                  选择音频
+                </button>
+              </div>
+              {managedSamplePreviewUrl ? (
+                <div className="sample-audio-preview">
+                  <strong>确认这段录音</strong>
+                  <audio
+                    controls
+                    preload="metadata"
+                    src={managedSamplePreviewUrl}
+                  />
+                </div>
+              ) : null}
+              <TextAreaField
+                label="这段录音里说的原文"
+                hint={`${managedReferenceText.length} / 1,000`}
+                value={managedReferenceText}
+                maxLength={1_000}
+                placeholder="请填写录音里实际说的文字"
+                onChange={(event) =>
+                  setManagedReferenceText(event.target.value)
+                }
+              />
+              {managedSampleQuality ? (
+                <div className="voice-quality-checks">
+                  {managedSampleQuality.checks.map((check) => (
+                    <StatusBadge key={check.code} tone={check.tone}>
+                      {check.label}
+                    </StatusBadge>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <p className="voice-sample-limit">
+              已保存 5 段参考录音；删除不用的录音后可以继续添加。
+            </p>
+          )}
         </div>
       </Modal>
 

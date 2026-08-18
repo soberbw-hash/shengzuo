@@ -30,7 +30,7 @@ export class ExportPreferencesStore {
   async updateNamingTemplate(template: string): Promise<ExportNamingSettings> {
     await this.ensureLoaded();
     if (!isExportNamingTemplate(template)) {
-      throw new Error("命名规则无效，请使用界面提供的名称、日期等内容。");
+      throw new Error("文件命名规则无法使用，请选择名称、日期等内容后重试。");
     }
     this.preferences.namingTemplate = template.trim();
     await this.persist();

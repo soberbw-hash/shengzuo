@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { X } from "lucide-react";
 import type { PropsWithChildren, ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { IconButton } from "./IconButton";
 
@@ -11,15 +12,18 @@ export const Modal = ({
   children,
   footer,
   onClose,
+  size = "md",
 }: PropsWithChildren<{
   open: boolean;
   title: string;
   description?: string;
   footer?: ReactNode;
   onClose: () => void;
+  size?: "md" | "lg" | "xl";
 }>) => {
   const reduceMotion = useReducedMotion();
-  return (
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <AnimatePresence>
       {open ? (
         <motion.div
@@ -37,6 +41,7 @@ export const Modal = ({
             aria-modal="true"
             aria-label={title}
             className="modal-card"
+            data-size={size}
             initial={
               reduceMotion
                 ? { opacity: 0 }
@@ -73,6 +78,7 @@ export const Modal = ({
           </motion.section>
         </motion.div>
       ) : null}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };

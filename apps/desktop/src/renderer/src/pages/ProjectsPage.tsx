@@ -7,16 +7,18 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import type {
-  AudioResult,
-  GenerationProject,
-  GenerationTask,
+import {
+  MODEL_CATALOG,
+  type AudioResult,
+  type GenerationProject,
+  type GenerationTask,
 } from "@ai-voice-studio/shared-types";
 import {
   Button,
@@ -92,6 +94,9 @@ export const ProjectsPage = () => {
   const pushToast = useStudioStore((state) => state.pushToast);
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const [busyResultId, setBusyResultId] = useState("");
+  const [showAllProjects, setShowAllProjects] = useState(false);
+  const [showAllTasks, setShowAllTasks] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [resultToDelete, setResultToDelete] = useState<AudioResult | null>(
     null,
   );
@@ -100,17 +105,49 @@ export const ProjectsPage = () => {
   const actionableTasks = tasks.filter((task) =>
     ["queued", "running", "failed"].includes(task.status),
   );
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase("zh-CN");
+  const projectById = useMemo(
+    () => new Map(projects.map((project) => [project.id, project])),
+    [projects],
+  );
+  const visibleProjects = useMemo(
+    () =>
+      normalizedSearch
+        ? projects.filter((project) =>
+            [project.title, project.sourceText, projectKindLabel[project.kind]]
+              .join(" ")
+              .toLocaleLowerCase("zh-CN")
+              .includes(normalizedSearch),
+          )
+        : projects,
+    [normalizedSearch, projects],
+  );
   const groupedResults = useMemo(() => {
     const groups = new Map<string, AudioResult[]>();
-    const visible = favoritesOnly
+    const favoriteResults = favoritesOnly
       ? results.filter((result) => result.favorite)
       : results;
+    const visible = normalizedSearch
+      ? favoriteResults.filter((result) => {
+          const project = result.projectId
+            ? projectById.get(result.projectId)
+            : undefined;
+          const modelName =
+            MODEL_CATALOG.find((model) => model.id === result.modelId)?.name ??
+            "";
+          return [result.title, modelName, result.kind, project?.sourceText]
+            .filter(Boolean)
+            .join(" ")
+            .toLocaleLowerCase("zh-CN")
+            .includes(normalizedSearch);
+        })
+      : favoriteResults;
     for (const result of visible) {
       const key = dateKey(new Date(result.createdAt));
       groups.set(key, [...(groups.get(key) ?? []), result]);
     }
     return [...groups.entries()];
-  }, [favoritesOnly, results]);
+  }, [favoritesOnly, normalizedSearch, projectById, results]);
 
   const continueProject = (project: GenerationProject) => {
     void navigate(`${projectDestination[project.kind]}?project=${project.id}`);
@@ -198,7 +235,7 @@ export const ProjectsPage = () => {
     <div className="page-content">
       <PageHeader
         title="项目与记录"
-        description="稿件可继续编辑，任务会在后台依次生成。"
+        description="可以继续编辑项目；多个任务会按顺序生成。"
         actions={
           <Button onClick={() => void navigate("/")}>
             <Plus className="h-4 w-4" />
@@ -207,6 +244,26 @@ export const ProjectsPage = () => {
         }
       />
 
+      <label className="workspace-search">
+        <Search className="h-4 w-4" />
+        <input
+          type="search"
+          value={searchQuery}
+          placeholder="搜索项目、文稿或生成记录"
+          aria-label="搜索项目、文稿或生成记录"
+          onChange={(event) => setSearchQuery(event.target.value)}
+        />
+        {searchQuery ? (
+          <button
+            type="button"
+            aria-label="清空搜索"
+            onClick={() => setSearchQuery("")}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        ) : null}
+      </label>
+
       <div
         className="workspace-overview-grid"
         data-has-queue={actionableTasks.length > 0}
@@ -214,11 +271,18 @@ export const ProjectsPage = () => {
         <GlassCard tone="solid" padding="lg" className="workspace-panel">
           <SectionHeading
             title="配音项目"
-            description={`${projects.length} 个项目`}
+            description={
+              normalizedSearch
+                ? `找到 ${visibleProjects.length} 个项目`
+                : `${projects.length} 个项目`
+            }
           />
-          {projects.length ? (
+          {visibleProjects.length ? (
             <div className="project-compact-list">
-              {projects.slice(0, 6).map((project) => (
+              {(showAllProjects
+                ? visibleProjects
+                : visibleProjects.slice(0, 6)
+              ).map((project) => (
                 <div key={project.id} className="project-compact-row">
                   <span className="project-compact-row__icon">
                     <FolderKanban className="h-4 w-4" />
@@ -244,11 +308,26 @@ export const ProjectsPage = () => {
                   </button>
                 </div>
               ))}
+              {visibleProjects.length > 6 ? (
+                <button
+                  type="button"
+                  className="workspace-show-more"
+                  onClick={() => setShowAllProjects((value) => !value)}
+                >
+                  {showAllProjects
+                    ? "收起项目"
+                    : `查看其余 ${visibleProjects.length - 6} 个项目`}
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className="workspace-panel-empty">
               <FolderKanban className="h-5 w-5" />
-              <span>保存稿件后会显示在这里</span>
+              <span>
+                {normalizedSearch
+                  ? "没有找到相关项目"
+                  : "保存稿件后会显示在这里"}
+              </span>
             </div>
           )}
         </GlassCard>
@@ -260,7 +339,10 @@ export const ProjectsPage = () => {
               description={`${actionableTasks.length} 个任务需要处理`}
             />
             <div className="task-compact-list">
-              {actionableTasks.slice(0, 5).map((task) => {
+              {(showAllTasks
+                ? actionableTasks
+                : actionableTasks.slice(0, 5)
+              ).map((task) => {
                 const status = taskStatus(task.status);
                 return (
                   <div key={task.id} className="task-compact-row">
@@ -304,6 +386,17 @@ export const ProjectsPage = () => {
                   </div>
                 );
               })}
+              {actionableTasks.length > 5 ? (
+                <button
+                  type="button"
+                  className="workspace-show-more"
+                  onClick={() => setShowAllTasks((value) => !value)}
+                >
+                  {showAllTasks
+                    ? "收起任务"
+                    : `查看其余 ${actionableTasks.length - 5} 个任务`}
+                </button>
+              ) : null}
             </div>
           </GlassCard>
         ) : null}
@@ -363,10 +456,14 @@ export const ProjectsPage = () => {
               className="history-filter-empty"
             >
               <Heart className="h-5 w-5" />
-              <strong>还没有收藏</strong>
-              <button type="button" onClick={() => setFavoritesOnly(false)}>
-                查看全部记录
-              </button>
+              <strong>
+                {normalizedSearch ? "没有找到相关记录" : "还没有收藏"}
+              </strong>
+              {favoritesOnly ? (
+                <button type="button" onClick={() => setFavoritesOnly(false)}>
+                  查看全部记录
+                </button>
+              ) : null}
             </GlassCard>
           )}
         </>

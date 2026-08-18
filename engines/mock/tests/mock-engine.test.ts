@@ -10,6 +10,7 @@ import { MockEngine } from "../src/index";
 
 const request: GenerationRequest = {
   requestId: "test-request",
+  title: "测试配音",
   modelId: "voxcpm2",
   voiceId: "voice-test",
   text: "这是一段用于自动化测试的文字。",

@@ -5,8 +5,8 @@ packages:
 
 blockExoticSubdeps: false
 
-allowBuilds:
-  "@swc/core": true
-  electron: true
-  electron-winstaller: true
-  esbuild: true
+onlyBuiltDependencies:
+  - "@swc/core"
+  - electron
+  - electron-winstaller
+  - esbuild

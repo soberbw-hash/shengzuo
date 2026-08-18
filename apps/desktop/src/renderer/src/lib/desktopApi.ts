@@ -8,16 +8,33 @@ import {
   type ExportAudioRequest,
   type GenerationProject,
   type GenerationTask,
+  type SmartApiConfig,
 } from "@ai-voice-studio/shared-types";
 
 const browserEngine = new MockEngine();
 let browserProjects: GenerationProject[] = [];
 let browserTasks: GenerationTask[] = [];
 let browserExportNamingTemplate = DEFAULT_EXPORT_NAMING_TEMPLATE;
+let browserSmartConfig: SmartApiConfig = {
+  enabled: true,
+  baseUrl: "https://api.example.com/v1",
+  model: "preview-model",
+  hasApiKey: true,
+};
 const browserTaskListeners = new Set<(task: GenerationTask) => void>();
 
 const browserCaptureMode = (): string | null =>
   new URLSearchParams(window.location.search).get("capture");
+
+const browserSmartConfigForPage = (): SmartApiConfig =>
+  new URLSearchParams(window.location.search).get("api") === "missing"
+    ? {
+        enabled: false,
+        baseUrl: "",
+        model: "",
+        hasApiKey: false,
+      }
+    : browserSmartConfig;
 
 const browserPreviewProjects = (): GenerationProject[] => {
   if (browserCaptureMode() !== "records") return [];
@@ -126,6 +143,8 @@ const browserPreviewResults = () => {
       modelId: "voxcpm2" as const,
       title: "产品介绍旁白",
       kind: "single" as const,
+      projectId: "project-12345678-preview",
+      takeNumber: 2,
     },
     {
       id: "preview-today-2",
@@ -220,15 +239,15 @@ const browserApi: DesktopApi = {
         items: [
           {
             id: "backend",
-            label: "本地后台",
+            label: "软件运行",
             status: "ok",
-            detail: "后台通信、Worker 文件和本机环回端口正常。",
+            detail: "软件可以正常连接本地模型。",
           },
           {
             id: "storage",
-            label: "文件与权限",
+            label: "文件保存",
             status: "ok",
-            detail: "模型库、项目、声音和输出目录均可正常读写。",
+            detail: "模型、项目、声音和音频都可以正常保存。",
           },
           {
             id: "hardware",
@@ -241,7 +260,7 @@ const browserApi: DesktopApi = {
             id: `model-${model.id}`,
             label: model.name,
             status: "ok" as const,
-            detail: "Python、模型文件、安装收据与 FFmpeg 均完整。",
+            detail: "需要的文件都已准备好。",
           })),
         ],
       }),
@@ -334,10 +353,7 @@ const browserApi: DesktopApi = {
       );
       const task: GenerationTask = {
         id,
-        title:
-          request.type === "generate-batch"
-            ? request.request.title
-            : "单段配音",
+        title: request.request.title,
         kind:
           request.type === "generate-batch" ? request.request.kind : "single",
         modelId: request.request.modelId,
@@ -393,6 +409,15 @@ const browserApi: DesktopApi = {
                 sampleName: "test.wav",
                 hasReferenceText: true,
                 createdAt: new Date().toISOString(),
+                referenceSamples: [
+                  {
+                    id: "sample-preview-1",
+                    name: "test.wav",
+                    createdAt: new Date().toISOString(),
+                    active: true,
+                  },
+                ],
+                previewUrl: "./mock-audio/preview.mp3",
               },
             ]
           : [],
@@ -403,6 +428,7 @@ const browserApi: DesktopApi = {
         canceled: false,
         sampleToken: `preview-${file.name}`,
         fileName: file.name,
+        previewUrl: URL.createObjectURL(file),
         quality: {
           status: "good" as const,
           durationSeconds: 8,
@@ -416,6 +442,25 @@ const browserApi: DesktopApi = {
         },
       }),
     create: () => Promise.reject(new Error("浏览器预览不能读取本地录音。")),
+    rename: (request) =>
+      Promise.resolve({
+        id: request.voiceId,
+        name: request.name.trim(),
+        description: "高保真声音克隆",
+        kind: "cloned",
+        modelId: "voxcpm2",
+        model: "三款模型通用",
+        color: "#54a8ef",
+        sampleName: "preview.wav",
+        hasReferenceText: true,
+        createdAt: new Date().toISOString(),
+      }),
+    addSample: () =>
+      Promise.reject(new Error("浏览器预览不能写入真实参考录音。")),
+    selectSampleForVoice: () =>
+      Promise.reject(new Error("浏览器预览不能切换真实参考录音。")),
+    removeSample: () =>
+      Promise.reject(new Error("浏览器预览不能删除真实参考录音。")),
     remove: () => Promise.resolve(false),
   },
   audio: {
@@ -438,6 +483,54 @@ const browserApi: DesktopApi = {
     removeResult: () => Promise.resolve(true),
     exportResult: exportInBrowser,
     openExportFolder: () => Promise.resolve(false),
+  },
+  smart: {
+    getConfig: () => Promise.resolve(browserSmartConfigForPage()),
+    updateConfig: (request) => {
+      browserSmartConfig = {
+        enabled: request.enabled,
+        baseUrl: request.baseUrl.trim().replace(/\/+$/u, ""),
+        model: request.model.trim(),
+        hasApiKey:
+          request.clearApiKey === true
+            ? false
+            : Boolean(request.apiKey?.trim()) || browserSmartConfig.hasApiKey,
+      };
+      return Promise.resolve(browserSmartConfig);
+    },
+    testConnection: () =>
+      Promise.resolve({
+        ok: true,
+        message: "API 连接成功。",
+        model: browserSmartConfig.model,
+      }),
+    processText: (request) =>
+      Promise.resolve({
+        revisedText:
+          request.action === "pause"
+            ? request.text.replaceAll("，", "， ")
+            : `${request.text.replace(/\s+/gu, " ").trim()}（已优化）`,
+        summary: "已保留原意，并让文字更适合朗读。",
+        pronunciations: request.text.includes("AI")
+          ? [{ source: "AI", replacement: "A I" }]
+          : [],
+        expressionSuggestion:
+          request.modelId === "fun-cosyvoice3-0.5b" && request.language === "zh"
+            ? undefined
+            : "自然清晰，重点处稍作停顿",
+        emotionSuggestion:
+          request.modelId === "indextts2-5" ? ("温暖" as const) : undefined,
+      }),
+    processDialogue: () =>
+      Promise.resolve({
+        lines: [
+          { role: "小林", text: "我们出发吧。" },
+          { role: "阿宁", text: "好，现在就走。" },
+        ],
+        roles: ["小林", "阿宁"],
+        summary: "已整理出 2 个角色、2 句台词。",
+        removedContent: ["场景描述", "动作说明"],
+      }),
   },
 };
 

@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  mkdir,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -15,19 +8,7 @@ import {
   type GenerationProject,
   type SaveProjectRequest,
 } from "@ai-voice-studio/shared-types";
-
-const atomicWriteJson = async (filePath: string, value: unknown) => {
-  const temporary = `${filePath}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(value, null, 2), {
-    encoding: "utf8",
-    flag: "wx",
-  });
-  try {
-    await rename(temporary, filePath);
-  } finally {
-    await rm(temporary, { force: true });
-  }
-};
+import { readResilientJson, writeResilientJson } from "./resilientJsonStore";
 
 export class ProjectStore {
   constructor(private readonly root: string) {}
@@ -52,7 +33,7 @@ export class ProjectStore {
 
   async save(request: SaveProjectRequest): Promise<GenerationProject> {
     if (!isSaveProjectRequest(request)) {
-      throw new Error("项目内容无效，请检查稿件和设置。");
+      throw new Error("项目没有保存，请检查稿件和配音设置。");
     }
     await mkdir(this.root, { recursive: true });
     const id = request.id ?? `project-${randomUUID()}`;
@@ -64,7 +45,7 @@ export class ProjectStore {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
-    await atomicWriteJson(path.join(this.root, `${id}.json`), project);
+    await writeResilientJson(path.join(this.root, `${id}.json`), project);
     return structuredClone(project);
   }
 
@@ -73,12 +54,12 @@ export class ProjectStore {
     const project = await this.get(projectId);
     if (!project) return false;
     await rm(path.join(this.root, `${projectId}.json`), { force: false });
+    await rm(path.join(this.root, `${projectId}.json.bak`), { force: true });
     return true;
   }
 
   private async readFile(filePath: string): Promise<GenerationProject | null> {
-    try {
-      const value: unknown = JSON.parse(await readFile(filePath, "utf8"));
+    return readResilientJson(filePath, (value): value is GenerationProject => {
       if (
         typeof value !== "object" ||
         value === null ||
@@ -91,16 +72,13 @@ export class ProjectStore {
         typeof value.updatedAt !== "string" ||
         Number.isNaN(Date.parse(value.updatedAt))
       ) {
-        return null;
+        return false;
       }
       const request = { ...value };
       Reflect.deleteProperty(request, "id");
       Reflect.deleteProperty(request, "createdAt");
       Reflect.deleteProperty(request, "updatedAt");
-      if (!isSaveProjectRequest({ ...request, id: value.id })) return null;
-      return value as GenerationProject;
-    } catch {
-      return null;
-    }
+      return isSaveProjectRequest({ ...request, id: value.id });
+    });
   }
 }

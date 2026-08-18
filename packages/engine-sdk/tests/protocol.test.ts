@@ -7,6 +7,7 @@ import { canTransition, validateGenerationRequest } from "../src/index";
 
 const validRequest: GenerationRequest = {
   requestId: "request-1",
+  title: "测试配音",
   modelId: "voxcpm2",
   voiceId: "voice-warm-narrator",
   text: "你好，欢迎使用 AI Voice Studio。",
@@ -28,4 +29,11 @@ void test("generation validation reports natural Chinese messages", () => {
   assert.deepEqual(validateGenerationRequest({ ...validRequest, text: " " }), [
     "请输入需要配音的文字。",
   ]);
+  assert.deepEqual(
+    validateGenerationRequest({
+      ...validRequest,
+      text: `${"字".repeat(2_000)}\n    字`,
+    }),
+    ["单次文本不能超过 2,000 个字，空格和空行不计。"],
+  );
 });

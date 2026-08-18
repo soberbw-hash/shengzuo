@@ -18,6 +18,7 @@ if str(WORKER_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKER_ROOT))
 
 from prompting import prepare_target_text
+from pacing import pace_correction, seconds_per_unit, split_for_stable_pacing
 
 MAX_REQUEST_BYTES = 128 * 1024
 JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,120}$")
@@ -99,9 +100,9 @@ class WorkerState:
                 raise RuntimeError("INVALID_REFERENCE_TEXT")
 
             expression = str(payload.get("expression", "")).strip()[:200]
-            target_text, has_control_instruction = prepare_target_text(
-                text, language, expression
-            )
+            text_chunks = split_for_stable_pacing(text)
+            if not text_chunks:
+                raise RuntimeError("INVALID_TEXT")
 
             self.output_root.mkdir(parents=True, exist_ok=True)
             output_path = (self.output_root / f"{job_id}.mp3").resolve()
@@ -126,23 +127,99 @@ class WorkerState:
                 if reference_info.duration < 3 or reference_info.duration > 60:
                     raise RuntimeError("VOICE_SAMPLE_DURATION")
 
-                generation_options: dict[str, Any] = {
-                    "text": target_text,
-                    "reference_wav_path": str(normalized_reference),
-                    "normalize": False,
-                    "denoise": False,
-                }
-                # VoxCPM2 官方模式中，续写克隆会忽略控制指令。方言或自定义
-                # 风格启用时只使用 reference_wav_path，避免控制词被念出或失效。
-                if reference_text and not has_control_instruction:
-                    generation_options["prompt_wav_path"] = str(normalized_reference)
-                    generation_options["prompt_text"] = reference_text
-                waveform = np.asarray(
-                    self.model.generate(**generation_options), dtype=np.float32
-                ).reshape(-1)
-                if waveform.size == 0:
-                    raise RuntimeError("EMPTY_GENERATION")
                 sample_rate = int(self.model.tts_model.sample_rate)
+                generated_chunks: list[np.ndarray] = []
+                baseline_pace: float | None = None
+                pace_retries = 0
+                pace_corrections = 0
+
+                for index, chunk in enumerate(text_chunks):
+                    target_text, has_control_instruction = prepare_target_text(
+                        chunk, language, expression
+                    )
+                    generation_options: dict[str, Any] = {
+                        "text": target_text,
+                        "reference_wav_path": str(normalized_reference),
+                        "normalize": False,
+                        "denoise": False,
+                    }
+                    # VoxCPM2 官方模式中，续写克隆会忽略控制指令。方言或自定义
+                    # 风格启用时只使用 reference_wav_path，避免控制词被念出或失效。
+                    if reference_text and not has_control_instruction:
+                        generation_options["prompt_wav_path"] = str(normalized_reference)
+                        generation_options["prompt_text"] = reference_text
+
+                    waveform = np.asarray(
+                        self.model.generate(**generation_options), dtype=np.float32
+                    ).reshape(-1)
+                    if waveform.size == 0:
+                        raise RuntimeError("EMPTY_GENERATION")
+                    chunk_pace = seconds_per_unit(waveform.size / sample_rate, chunk)
+
+                    is_unusually_fast = (
+                        chunk_pace is not None
+                        and (
+                            chunk_pace < 0.11
+                            or (
+                                baseline_pace is not None
+                                and chunk_pace < baseline_pace * 0.78
+                            )
+                        )
+                    )
+                    if is_unusually_fast:
+                        retry_waveform = np.asarray(
+                            self.model.generate(**generation_options), dtype=np.float32
+                        ).reshape(-1)
+                        retry_pace = seconds_per_unit(
+                            retry_waveform.size / sample_rate, chunk
+                        )
+                        if retry_waveform.size and (
+                            retry_pace is not None
+                            and (chunk_pace is None or retry_pace > chunk_pace)
+                        ):
+                            waveform = retry_waveform
+                            chunk_pace = retry_pace
+                        pace_retries += 1
+
+                    if baseline_pace is None and chunk_pace is not None:
+                        baseline_pace = max(0.14, min(0.35, chunk_pace))
+
+                    correction = pace_correction(baseline_pace, chunk_pace)
+                    if correction < 0.999:
+                        chunk_input = temporary / f"chunk-{index}.wav"
+                        chunk_output = temporary / f"chunk-{index}-stable.wav"
+                        sf.write(chunk_input, waveform, sample_rate)
+                        subprocess.run(
+                            [
+                                ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                                "-i", str(chunk_input), "-filter:a",
+                                f"atempo={correction:.4f}", "-ac", "1",
+                                str(chunk_output),
+                            ],
+                            check=True,
+                            capture_output=True,
+                        )
+                        waveform = np.asarray(
+                            sf.read(chunk_output, dtype="float32")[0],
+                            dtype=np.float32,
+                        ).reshape(-1)
+                        pace_corrections += 1
+                    fade_samples = min(int(sample_rate * 0.012), waveform.size // 2)
+                    if fade_samples > 1:
+                        fade = np.sin(
+                            np.linspace(0, np.pi / 2, fade_samples, dtype=np.float32)
+                        ) ** 2
+                        waveform[:fade_samples] *= fade
+                        waveform[-fade_samples:] *= fade[::-1]
+                    generated_chunks.append(waveform)
+
+                separator = np.zeros(int(sample_rate * 0.06), dtype=np.float32)
+                merged_chunks: list[np.ndarray] = []
+                for index, chunk_waveform in enumerate(generated_chunks):
+                    if index:
+                        merged_chunks.append(separator)
+                    merged_chunks.append(chunk_waveform)
+                waveform = np.concatenate(merged_chunks)
                 sf.write(raw_output, waveform, sample_rate)
 
                 subprocess.run(
@@ -161,6 +238,9 @@ class WorkerState:
                 "fileName": output_path.name,
                 "durationSeconds": round(duration, 3),
                 "device": self.device,
+                "pacingChunks": len(text_chunks),
+                "paceRetries": pace_retries,
+                "paceCorrections": pace_corrections,
             }
 
 

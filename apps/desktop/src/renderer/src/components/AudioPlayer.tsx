@@ -100,7 +100,9 @@ export const AudioPlayer = ({
     <GlassCard tone="solid" padding="md" className="audio-result-card">
       <audio ref={audioRef} src={source} preload="metadata" />
       <div className="flex items-center justify-between gap-4">
-        <h3 className="text-[17px] font-bold text-[#172235]">生成结果</h3>
+        <h3 className="text-[17px] font-bold text-[#172235]">
+          {result.preview ? "试听结果" : "生成结果"}
+        </h3>
         <span className="rounded-full bg-[#e8f8f0] px-3 py-1 text-[11px] font-bold text-[#128552]">
           已完成 · {result.format.toUpperCase()}
         </span>
@@ -153,19 +155,36 @@ export const AudioPlayer = ({
         </div>
       </div>
 
+      {result.quality ? (
+        <div
+          className="audio-quality-note"
+          data-status={result.quality.status}
+          title={result.quality.note}
+        >
+          <strong>
+            {result.quality.status === "passed" ? "音频检查通过" : "建议试听"}
+          </strong>
+          <span>{result.quality.note}</span>
+        </div>
+      ) : null}
+
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <Button size="sm" variant="secondary" onClick={onRegenerate}>
           <RotateCcw className="h-3.5 w-3.5" />
-          重新生成
+          {result.preview ? "重新试听" : "重新生成"}
         </Button>
-        <Button size="sm" onClick={() => void exportAudio()}>
-          <Download className="h-3.5 w-3.5" />
-          导出音频
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => void openFolder()}>
-          <FolderOpen className="h-3.5 w-3.5" />
-          打开文件位置
-        </Button>
+        {result.preview ? null : (
+          <>
+            <Button size="sm" onClick={() => void exportAudio()}>
+              <Download className="h-3.5 w-3.5" />
+              导出音频
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void openFolder()}>
+              <FolderOpen className="h-3.5 w-3.5" />
+              打开文件位置
+            </Button>
+          </>
+        )}
       </div>
     </GlassCard>
   );

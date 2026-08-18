@@ -61,6 +61,7 @@ const workerFiles = [
   "common/worker/server_core.py",
   "common/worker/install_assets.py",
   "common/worker/merge_audio.py",
+  "common/worker/inspect_audio.py",
   "voxcpm2/worker/server.py",
   "voxcpm2/model-manifest.json",
   "fun-cosyvoice3/worker/server.py",
@@ -126,7 +127,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "notice",
-      detail: "尚未下载，需要时可在“本地引擎”一键安装。",
+      detail: "还没有下载。需要时可到“本地引擎”下载安装。",
     };
   }
   if (
@@ -137,7 +138,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "notice",
-      detail: "模型正在准备或已暂停，已下载的文件会保留并支持续传。",
+      detail: "下载还没有完成。打开“本地引擎”可以继续下载。",
     };
   }
   const requiredFiles = [
@@ -153,7 +154,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "attention",
-      detail: `模型不完整（缺少 ${missingFiles.length} 项运行文件），已刷新为未安装；请到“本地引擎”重新下载。`,
+      detail: `模型缺少 ${missingFiles.length} 个文件，请到“本地引擎”重新下载。`,
     };
   }
   if (!(await hasFfmpeg(modelRoot))) {
@@ -161,14 +162,14 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "attention",
-      detail: "模型主体完整，但没有找到 FFmpeg；请到“本地引擎”重新准备该模型。",
+      detail: "模型缺少生成音频需要的文件，请到“本地引擎”重新准备。",
     };
   }
   return {
     id: `model-${config.id}`,
     label: config.name,
     status: "ok",
-    detail: "Python、模型文件、安装收据与 FFmpeg 均完整。",
+    detail: "需要的文件都已准备好。",
   };
 };
 
@@ -185,18 +186,18 @@ export const checkAndRepairSystem = async (
     missingWorkerFiles.length === 0 && loopbackReady
       ? {
           id: "backend",
-          label: "本地后台",
+          label: "软件运行",
           status: "ok",
-          detail: "后台通信、Worker 文件和本机环回端口正常。",
+          detail: "软件可以正常连接本地模型。",
         }
       : {
           id: "backend",
-          label: "本地后台",
+          label: "软件运行",
           status: "attention",
           detail:
             missingWorkerFiles.length > 0
-              ? `程序文件不完整（缺少 ${missingWorkerFiles.length} 项），请重新复制完整 app 文件夹。`
-              : "本机环回端口暂时不可用，请关闭拦截本地连接的软件后重试。",
+              ? `软件缺少 ${missingWorkerFiles.length} 个文件，请重新解压完整软件。`
+              : "软件无法连接本地模型。请关闭可能拦截声作的安全软件后重试。",
         },
   );
 
@@ -216,22 +217,23 @@ export const checkAndRepairSystem = async (
     !storageWritable
       ? {
           id: "storage",
-          label: "文件与权限",
+          label: "文件保存",
           status: "attention",
-          detail: "模型库或数据目录不可写，请把软件和模型放到本机可写位置。",
+          detail:
+            "软件无法保存模型或项目。请更换模型位置，或把软件放到可写入的文件夹。",
         }
       : repairedStorage
         ? {
             id: "storage",
-            label: "文件与权限",
+            label: "文件保存",
             status: "repaired",
-            detail: "缺少的目录或模型库说明已自动补齐，读写测试通过。",
+            detail: "缺少的文件夹已自动补齐，现在可以正常保存。",
           }
         : {
             id: "storage",
-            label: "文件与权限",
+            label: "文件保存",
             status: "ok",
-            detail: "模型库、项目、声音和输出目录均可正常读写。",
+            detail: "模型、项目、声音和音频都可以正常保存。",
           },
   );
 
@@ -254,7 +256,8 @@ export const checkAndRepairSystem = async (
       id: "hardware",
       label: "硬件加速",
       status: "attention",
-      detail: "没有兼容 NVIDIA 显卡且系统内存不足 16GB，不建议运行本地大模型。",
+      detail:
+        "没有可用的 NVIDIA 显卡，内存也少于 16 GB，这台电脑可能无法运行本地模型。",
     });
   }
 

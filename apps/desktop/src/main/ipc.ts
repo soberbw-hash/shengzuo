@@ -2,7 +2,14 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import { BrowserWindow, app, dialog, ipcMain, shell } from "electron";
+import {
+  BrowserWindow,
+  app,
+  dialog,
+  ipcMain,
+  safeStorage,
+  shell,
+} from "electron";
 
 import { detectHardware } from "@ai-voice-studio/hardware-detector";
 
@@ -10,6 +17,7 @@ import {
   APP_NAME,
   APP_VERSION,
   IPC_CHANNELS,
+  isAddVoiceSampleRequest,
   isCreateVoiceProfileRequest,
   isDownloadSource,
   isEngineCommand,
@@ -17,9 +25,15 @@ import {
   isExportAudioRequest,
   isModelId,
   isProjectId,
+  isRemoveVoiceSampleRequest,
+  isRenameVoiceProfileRequest,
   isSaveProjectRequest,
   isSetAudioFavoriteRequest,
+  isSelectVoiceSampleRequest,
+  isSmartDialogueScriptRequest,
+  isSmartTextRequest,
   isUpdateExportNamingSettingsRequest,
+  isUpdateSmartApiConfigRequest,
   isVoiceId,
 } from "@ai-voice-studio/shared-types";
 
@@ -33,6 +47,12 @@ import {
   resolveModelLibrarySelection,
 } from "./modelLibrary";
 import { ProjectStore } from "./projectStore";
+import {
+  loadDialogueExtractionPrompt,
+  SmartApiService,
+  SmartApiStore,
+  smartApiConfigPath,
+} from "./smartApi";
 import { checkAndRepairSystem } from "./systemCheck";
 import { checkForAppUpdates, RELEASES_PAGE_URL } from "./updateChecker";
 import { VoiceStore } from "./voiceStore";
@@ -62,8 +82,21 @@ export const registerIpcHandlers = (): (() => void) => {
   const diagnostics = new DiagnosticsService(
     path.join(workspaceRoot, "diagnostics"),
   );
-  const stopAudioScheme = handleAudioScheme((resultId) =>
-    engine.getResultPath(resultId),
+  const dialoguePromptPath = app.isPackaged
+    ? path.join(process.resourcesPath, "prompts", "多人对话脚本整理.md")
+    : path.resolve(app.getAppPath(), "../../prompts/多人对话脚本整理.md");
+  const smartApi = new SmartApiService(
+    new SmartApiStore(smartApiConfigPath(app.getPath("userData")), {
+      available: () => safeStorage.isEncryptionAvailable(),
+      protect: (value) => safeStorage.encryptString(value),
+      unprotect: (value) => safeStorage.decryptString(value),
+    }),
+    fetch,
+    loadDialogueExtractionPrompt(dialoguePromptPath),
+  );
+  const stopAudioScheme = handleAudioScheme(
+    (resultId) => engine.getResultPath(resultId),
+    (sampleToken) => voiceStore.getPreviewSamplePath(sampleToken),
   );
   const unsubscribe = engine.subscribe((snapshot) => {
     void diagnostics.record(
@@ -213,14 +246,14 @@ export const registerIpcHandlers = (): (() => void) => {
   );
   ipcMain.handle(IPC_CHANNELS.engine.command, (_event, command: unknown) => {
     if (!isEngineCommand(command)) {
-      throw new Error("收到无效的本地引擎请求。");
+      throw new Error("操作没有完成，请关闭软件后重新打开。");
     }
     return engine.command(command);
   });
   ipcMain.handle(
     IPC_CHANNELS.models.storageInfo,
     (_event, modelId: unknown) => {
-      if (!isModelId(modelId)) throw new Error("模型编号无效。");
+      if (!isModelId(modelId)) throw new Error("找不到这个模型，请重新选择。");
       return engine.getStorageInfo(modelId);
     },
   );
@@ -230,14 +263,15 @@ export const registerIpcHandlers = (): (() => void) => {
   ipcMain.handle(
     IPC_CHANNELS.models.setDownloadSource,
     (_event, source: unknown) => {
-      if (!isDownloadSource(source)) throw new Error("下载源无效。");
+      if (!isDownloadSource(source))
+        throw new Error("找不到这个下载源，请重新选择。");
       return engine.setDownloadSource(source);
     },
   );
   ipcMain.handle(
     IPC_CHANNELS.models.importOffline,
     async (_event, modelId: unknown) => {
-      if (!isModelId(modelId)) throw new Error("模型编号无效。");
+      if (!isModelId(modelId)) throw new Error("找不到这个模型，请重新选择。");
       const selected = await dialog.showOpenDialog({
         title: "选择已准备好的模型文件夹",
         properties: ["openDirectory"],
@@ -255,30 +289,33 @@ export const registerIpcHandlers = (): (() => void) => {
   );
   ipcMain.handle(IPC_CHANNELS.projects.list, () => projectStore.list());
   ipcMain.handle(IPC_CHANNELS.projects.get, (_event, projectId: unknown) => {
-    if (!isProjectId(projectId)) throw new Error("项目编号无效。");
+    if (!isProjectId(projectId))
+      throw new Error("找不到这个项目，请刷新后重试。");
     return projectStore.get(projectId);
   });
   ipcMain.handle(IPC_CHANNELS.projects.save, (_event, request: unknown) => {
     if (!isSaveProjectRequest(request)) {
-      throw new Error("项目内容无效，请检查稿件和设置。");
+      throw new Error("项目没有保存，请检查稿件和配音设置。");
     }
     return projectStore.save(request);
   });
   ipcMain.handle(IPC_CHANNELS.projects.remove, (_event, projectId: unknown) => {
-    if (!isProjectId(projectId)) throw new Error("项目编号无效。");
+    if (!isProjectId(projectId))
+      throw new Error("找不到这个项目，请刷新后重试。");
     return projectStore.remove(projectId);
   });
   ipcMain.handle(IPC_CHANNELS.tasks.list, () => engine.listTasks());
   ipcMain.handle(IPC_CHANNELS.tasks.enqueue, (_event, request: unknown) => {
-    if (!isEnqueueTaskRequest(request)) throw new Error("生成任务无效。");
+    if (!isEnqueueTaskRequest(request))
+      throw new Error("没有开始生成，请检查稿件和配音设置。");
     return engine.enqueueTask(request);
   });
   ipcMain.handle(IPC_CHANNELS.tasks.retry, (_event, taskId: unknown) => {
-    if (!isVoiceId(taskId)) throw new Error("任务编号无效。");
+    if (!isVoiceId(taskId)) throw new Error("找不到这个任务，请刷新后重试。");
     return engine.retryTask(taskId);
   });
   ipcMain.handle(IPC_CHANNELS.tasks.cancel, (_event, taskId: unknown) => {
-    if (!isVoiceId(taskId)) throw new Error("任务编号无效。");
+    if (!isVoiceId(taskId)) throw new Error("找不到这个任务，请刷新后重试。");
     return engine.cancelTask(taskId);
   });
   ipcMain.handle(IPC_CHANNELS.voices.list, () => voiceStore.list());
@@ -289,19 +326,49 @@ export const registerIpcHandlers = (): (() => void) => {
     IPC_CHANNELS.voices.selectDroppedSample,
     (_event, filePath: unknown) => {
       if (typeof filePath !== "string") {
-        throw new Error("拖入的音频无效。");
+        throw new Error("没有读取到这段音频，请重新拖入。");
       }
       return voiceStore.selectDroppedSample(filePath);
     },
   );
   ipcMain.handle(IPC_CHANNELS.voices.create, (_event, request: unknown) => {
     if (!isCreateVoiceProfileRequest(request)) {
-      throw new Error("录音、声音名称或录音原文无效。");
+      throw new Error("请检查声音名称、录音和录音中实际说的文字。");
     }
     return voiceStore.create(request);
   });
+  ipcMain.handle(IPC_CHANNELS.voices.rename, (_event, request: unknown) => {
+    if (!isRenameVoiceProfileRequest(request)) {
+      throw new Error("声音名称需要填写 1 到 24 个字。");
+    }
+    return voiceStore.rename(request);
+  });
+  ipcMain.handle(IPC_CHANNELS.voices.addSample, (_event, request: unknown) => {
+    if (!isAddVoiceSampleRequest(request)) {
+      throw new Error("请重新选择录音，并填写录音中实际说的文字。");
+    }
+    return voiceStore.addSample(request);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.voices.selectSampleForVoice,
+    (_event, request: unknown) => {
+      if (!isSelectVoiceSampleRequest(request)) {
+        throw new Error("找不到这段录音，请重新选择。");
+      }
+      return voiceStore.selectSampleForVoice(request);
+    },
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.voices.removeSample,
+    (_event, request: unknown) => {
+      if (!isRemoveVoiceSampleRequest(request)) {
+        throw new Error("找不到这段录音，请刷新后重试。");
+      }
+      return voiceStore.removeSample(request);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.voices.remove, (_event, voiceId: unknown) => {
-    if (!isVoiceId(voiceId)) throw new Error("声音编号无效。");
+    if (!isVoiceId(voiceId)) throw new Error("找不到这个声音，请刷新后重试。");
     return voiceStore.remove(voiceId);
   });
   ipcMain.handle(IPC_CHANNELS.audio.listResults, () => engine.listResults());
@@ -312,21 +379,22 @@ export const registerIpcHandlers = (): (() => void) => {
     IPC_CHANNELS.audio.updateExportNamingSettings,
     (_event, request: unknown) => {
       if (!isUpdateExportNamingSettingsRequest(request)) {
-        throw new Error("命名规则无效，请重新设置。");
+        throw new Error("文件命名规则无法使用，请重新设置。");
       }
       return exportPreferences.updateNamingTemplate(request.template);
     },
   );
   ipcMain.handle(IPC_CHANNELS.audio.setFavorite, (_event, request: unknown) => {
     if (!isSetAudioFavoriteRequest(request)) {
-      throw new Error("收藏设置无效。");
+      throw new Error("没有更新收藏，请刷新后重试。");
     }
     return engine.setResultFavorite(request.resultId, request.favorite);
   });
   ipcMain.handle(
     IPC_CHANNELS.audio.removeResult,
     (_event, resultId: unknown) => {
-      if (!isVoiceId(resultId)) throw new Error("生成记录编号无效。");
+      if (!isVoiceId(resultId))
+        throw new Error("找不到这条生成记录，请刷新后重试。");
       return engine.removeResult(resultId);
     },
   );
@@ -334,7 +402,7 @@ export const registerIpcHandlers = (): (() => void) => {
     IPC_CHANNELS.audio.exportResult,
     async (_event, request: unknown) => {
       if (!isExportAudioRequest(request)) {
-        throw new Error("收到无效的音频导出请求。");
+        throw new Error("没有导出音频，请重新选择生成记录。");
       }
       const sourcePath = engine.getResultPath(request.resultId);
       if (!sourcePath) {
@@ -369,6 +437,34 @@ export const registerIpcHandlers = (): (() => void) => {
     const error = await shell.openPath(lastExportDirectory);
     return error.length === 0;
   });
+  ipcMain.handle(IPC_CHANNELS.smart.getConfig, () => smartApi.getConfig());
+  ipcMain.handle(
+    IPC_CHANNELS.smart.updateConfig,
+    (_event, request: unknown) => {
+      if (!isUpdateSmartApiConfigRequest(request)) {
+        throw new Error("API配置有误，请检查 Base URL 和 Model。");
+      }
+      return smartApi.updateConfig(request);
+    },
+  );
+  ipcMain.handle(IPC_CHANNELS.smart.testConnection, () =>
+    smartApi.testConnection(),
+  );
+  ipcMain.handle(IPC_CHANNELS.smart.processText, (_event, request: unknown) => {
+    if (!isSmartTextRequest(request)) {
+      throw new Error("选择的文字太多或内容为空，请重新选择后再试。");
+    }
+    return smartApi.processText(request);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.smart.processDialogue,
+    (_event, request: unknown) => {
+      if (!isSmartDialogueScriptRequest(request)) {
+        throw new Error("脚本文字太多或内容为空，请检查后重试。");
+      }
+      return smartApi.processDialogue(request);
+    },
+  );
 
   return () => {
     unsubscribe();
@@ -405,6 +501,10 @@ export const registerIpcHandlers = (): (() => void) => {
     ipcMain.removeHandler(IPC_CHANNELS.voices.selectSample);
     ipcMain.removeHandler(IPC_CHANNELS.voices.selectDroppedSample);
     ipcMain.removeHandler(IPC_CHANNELS.voices.create);
+    ipcMain.removeHandler(IPC_CHANNELS.voices.rename);
+    ipcMain.removeHandler(IPC_CHANNELS.voices.addSample);
+    ipcMain.removeHandler(IPC_CHANNELS.voices.selectSampleForVoice);
+    ipcMain.removeHandler(IPC_CHANNELS.voices.removeSample);
     ipcMain.removeHandler(IPC_CHANNELS.voices.remove);
     ipcMain.removeHandler(IPC_CHANNELS.audio.exportResult);
     ipcMain.removeHandler(IPC_CHANNELS.audio.listResults);
@@ -413,5 +513,10 @@ export const registerIpcHandlers = (): (() => void) => {
     ipcMain.removeHandler(IPC_CHANNELS.audio.setFavorite);
     ipcMain.removeHandler(IPC_CHANNELS.audio.removeResult);
     ipcMain.removeHandler(IPC_CHANNELS.audio.openExportFolder);
+    ipcMain.removeHandler(IPC_CHANNELS.smart.getConfig);
+    ipcMain.removeHandler(IPC_CHANNELS.smart.updateConfig);
+    ipcMain.removeHandler(IPC_CHANNELS.smart.testConnection);
+    ipcMain.removeHandler(IPC_CHANNELS.smart.processText);
+    ipcMain.removeHandler(IPC_CHANNELS.smart.processDialogue);
   };
 };
