@@ -117,6 +117,9 @@ export const HistoryAudioRow = ({
           <strong>{result.title ?? "配音"}</strong>
           <small>
             {modelName} · {result.format.toUpperCase()}
+            {result.projectId && result.takeNumber
+              ? ` · 第 ${result.takeNumber} 版`
+              : ""}
           </small>
         </div>
         <time dateTime={result.createdAt}>{formatTime(result.createdAt)}</time>

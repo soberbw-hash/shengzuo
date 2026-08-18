@@ -16,7 +16,11 @@ import path from "node:path";
 import { dialog } from "electron";
 
 import type {
+  AddVoiceSampleRequest,
   CreateVoiceProfileRequest,
+  RemoveVoiceSampleRequest,
+  RenameVoiceProfileRequest,
+  SelectVoiceSampleRequest,
   VoiceProfile,
   VoiceSampleQuality,
   VoiceSampleSelection,
@@ -24,10 +28,21 @@ import type {
 
 import { getModelLibraryRoot } from "./modelLibrary";
 
-interface StoredVoiceProfile extends VoiceProfile {
+interface StoredReferenceSample {
+  id: string;
+  name: string;
+  createdAt: string;
   sampleFile: string;
   referenceText: string;
   sampleSha256: string;
+}
+
+interface StoredVoiceProfile extends Omit<VoiceProfile, "referenceSamples"> {
+  sampleFile: string;
+  referenceText: string;
+  sampleSha256: string;
+  referenceSamples?: StoredReferenceSample[];
+  activeSampleId?: string;
 }
 
 interface PendingSample {
@@ -201,18 +216,53 @@ const sha256File = async (filePath: string): Promise<string> => {
   return createHash("sha256").update(data).digest("hex");
 };
 
-const publicProfile = (profile: StoredVoiceProfile): VoiceProfile => ({
-  id: profile.id,
-  name: profile.name,
-  description: profile.description,
-  kind: profile.kind,
-  modelId: profile.modelId,
-  model: "三款模型通用",
-  color: profile.color,
-  sampleName: profile.sampleName,
-  hasReferenceText: profile.hasReferenceText,
-  createdAt: profile.createdAt,
-});
+const storedSamples = (profile: StoredVoiceProfile): StoredReferenceSample[] =>
+  profile.referenceSamples?.length
+    ? profile.referenceSamples
+    : [
+        {
+          id: "sample-original",
+          name: profile.sampleName,
+          createdAt: profile.createdAt,
+          sampleFile: profile.sampleFile,
+          referenceText: profile.referenceText,
+          sampleSha256: profile.sampleSha256,
+        },
+      ];
+
+const activeStoredSample = (
+  profile: StoredVoiceProfile,
+): StoredReferenceSample => {
+  const samples = storedSamples(profile);
+  return (
+    samples.find((sample) => sample.id === profile.activeSampleId) ??
+    samples[0]!
+  );
+};
+
+const publicProfile = (profile: StoredVoiceProfile): VoiceProfile => {
+  const samples = storedSamples(profile);
+  const active = activeStoredSample(profile);
+  return {
+    id: profile.id,
+    name: profile.name,
+    description: profile.description,
+    kind: profile.kind,
+    modelId: profile.modelId,
+    model: "三款模型通用",
+    color: profile.color,
+    sampleName: active.name,
+    hasReferenceText: active.referenceText.trim().length > 0,
+    createdAt: profile.createdAt,
+    referenceSamples: samples.map((sample) => ({
+      id: sample.id,
+      name: sample.name,
+      createdAt: sample.createdAt,
+      active: sample.id === active.id,
+    })),
+    previewUrl: `shengzuo-audio://voice/${encodeURIComponent(profile.id)}?sample=${encodeURIComponent(active.id)}`,
+  };
+};
 
 export class VoiceStore {
   private readonly pending = new Map<string, PendingSample>();
@@ -264,7 +314,7 @@ export class VoiceStore {
   async selectDroppedSample(filePath: string): Promise<VoiceSampleSelection> {
     this.prunePending();
     if (!path.isAbsolute(filePath) || filePath.includes("\0")) {
-      throw new Error("拖入的音频路径无效。");
+      throw new Error("没有读取到这段音频，请重新拖入。");
     }
     return this.registerSample(path.resolve(filePath));
   }
@@ -301,7 +351,37 @@ export class VoiceStore {
       expiresAt: Date.now() + pendingLifetimeMs,
       quality,
     });
-    return { canceled: false, sampleToken, fileName, quality };
+    return {
+      canceled: false,
+      sampleToken,
+      fileName,
+      previewUrl: `shengzuo-audio://sample/${encodeURIComponent(sampleToken)}`,
+      quality,
+    };
+  }
+
+  getPendingSamplePath(sampleToken: string): string | undefined {
+    this.prunePending();
+    if (!/^[a-f0-9-]{1,120}$/u.test(sampleToken)) return undefined;
+    return this.pending.get(sampleToken)?.filePath;
+  }
+
+  async getPreviewSamplePath(identifier: string): Promise<string | undefined> {
+    const pending = this.getPendingSamplePath(identifier);
+    if (pending) return pending;
+    if (!/^voice-[a-f0-9-]{8,120}$/u.test(identifier)) return undefined;
+    try {
+      const stored = await this.readStored(identifier);
+      const sample = activeStoredSample(stored);
+      const samplePath = path.join(
+        this.voicesRoot,
+        identifier,
+        sample.sampleFile,
+      );
+      return existsSync(samplePath) ? samplePath : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async create(request: CreateVoiceProfileRequest): Promise<VoiceProfile> {
@@ -323,6 +403,8 @@ export class VoiceStore {
 
     try {
       await copyFile(pending.filePath, samplePath);
+      const sampleId = `sample-${randomUUID()}`;
+      const sampleSha256 = await sha256File(samplePath);
       const profile: StoredVoiceProfile = {
         id: voiceId,
         name: request.name.trim(),
@@ -338,7 +420,18 @@ export class VoiceStore {
         createdAt: new Date().toISOString(),
         sampleFile,
         referenceText: request.referenceText.trim(),
-        sampleSha256: await sha256File(samplePath),
+        sampleSha256,
+        activeSampleId: sampleId,
+        referenceSamples: [
+          {
+            id: sampleId,
+            name: pending.fileName,
+            createdAt: new Date().toISOString(),
+            sampleFile,
+            referenceText: request.referenceText.trim(),
+            sampleSha256,
+          },
+        ],
       };
       await atomicWriteJson(
         path.join(temporaryDirectory, "profile.json"),
@@ -360,24 +453,140 @@ export class VoiceStore {
     return true;
   }
 
+  async rename(request: RenameVoiceProfileRequest): Promise<VoiceProfile> {
+    const stored = await this.readStored(request.voiceId);
+    const updated: StoredVoiceProfile = {
+      ...stored,
+      name: request.name.trim(),
+    };
+    await atomicWriteJson(
+      path.join(this.voicesRoot, request.voiceId, "profile.json"),
+      updated,
+    );
+    return publicProfile(updated);
+  }
+
+  async addSample(request: AddVoiceSampleRequest): Promise<VoiceProfile> {
+    this.prunePending();
+    const pending = this.pending.get(request.sampleToken);
+    if (!pending) throw new Error("录音选择已过期，请重新选择一次。");
+    const stored = await this.readStored(request.voiceId);
+    const samples = storedSamples(stored);
+    if (samples.length >= 5) {
+      throw new Error("一个声音最多保存 5 段参考录音，请先删除不用的录音。");
+    }
+    this.pending.delete(request.sampleToken);
+    const sampleId = `sample-${randomUUID()}`;
+    const extension = path.extname(pending.filePath).toLowerCase();
+    const sampleFile = `${sampleId}${extension}`;
+    const samplePath = path.join(this.voicesRoot, request.voiceId, sampleFile);
+    try {
+      await copyFile(pending.filePath, samplePath);
+      const sample: StoredReferenceSample = {
+        id: sampleId,
+        name: pending.fileName,
+        createdAt: new Date().toISOString(),
+        sampleFile,
+        referenceText: request.referenceText.trim(),
+        sampleSha256: await sha256File(samplePath),
+      };
+      const updated: StoredVoiceProfile = {
+        ...stored,
+        activeSampleId: sampleId,
+        referenceSamples: [...samples, sample],
+      };
+      await atomicWriteJson(
+        path.join(this.voicesRoot, request.voiceId, "profile.json"),
+        updated,
+      );
+      return publicProfile(updated);
+    } catch (error) {
+      await rm(samplePath, { force: true });
+      throw error;
+    }
+  }
+
+  async selectSampleForVoice(
+    request: SelectVoiceSampleRequest,
+  ): Promise<VoiceProfile> {
+    const stored = await this.readStored(request.voiceId);
+    const samples = storedSamples(stored);
+    const selected = samples.find((sample) => sample.id === request.sampleId);
+    if (!selected) {
+      throw new Error("这段参考录音已经不存在。");
+    }
+    const selectedPath = path.join(
+      this.voicesRoot,
+      request.voiceId,
+      selected.sampleFile,
+    );
+    if (
+      !existsSync(selectedPath) ||
+      (await sha256File(selectedPath)) !== selected.sampleSha256
+    ) {
+      throw new Error("这段录音已损坏或被移动，请删除后重新添加。");
+    }
+    const updated: StoredVoiceProfile = {
+      ...stored,
+      activeSampleId: request.sampleId,
+      referenceSamples: samples,
+    };
+    await atomicWriteJson(
+      path.join(this.voicesRoot, request.voiceId, "profile.json"),
+      updated,
+    );
+    return publicProfile(updated);
+  }
+
+  async removeSample(request: RemoveVoiceSampleRequest): Promise<VoiceProfile> {
+    const stored = await this.readStored(request.voiceId);
+    const samples = storedSamples(stored);
+    if (samples.length <= 1) {
+      throw new Error("声音至少需要保留一段参考录音。");
+    }
+    const removed = samples.find((sample) => sample.id === request.sampleId);
+    if (!removed) throw new Error("这段参考录音已经不存在。");
+    const remaining = samples.filter(
+      (sample) => sample.id !== request.sampleId,
+    );
+    const activeSampleId =
+      stored.activeSampleId === request.sampleId
+        ? remaining[0]!.id
+        : (stored.activeSampleId ?? remaining[0]!.id);
+    const updated: StoredVoiceProfile = {
+      ...stored,
+      activeSampleId,
+      referenceSamples: remaining,
+    };
+    await atomicWriteJson(
+      path.join(this.voicesRoot, request.voiceId, "profile.json"),
+      updated,
+    );
+    await rm(path.join(this.voicesRoot, request.voiceId, removed.sampleFile), {
+      force: true,
+    }).catch(() => undefined);
+    return publicProfile(updated);
+  }
+
   async getGenerationSource(voiceId: string): Promise<{
     audioPath: string;
     referenceText: string;
   }> {
     const stored = await this.readStored(voiceId);
-    const audioPath = path.join(this.voicesRoot, voiceId, stored.sampleFile);
-    if ((await sha256File(audioPath)) !== stored.sampleSha256) {
-      throw new Error("声音录音校验失败，请重新克隆这个声音。");
+    const sample = activeStoredSample(stored);
+    const audioPath = path.join(this.voicesRoot, voiceId, sample.sampleFile);
+    if ((await sha256File(audioPath)) !== sample.sampleSha256) {
+      throw new Error("这个声音的录音已损坏或被移动，请重新克隆。");
     }
     return {
       audioPath,
-      referenceText: stored.referenceText,
+      referenceText: sample.referenceText,
     };
   }
 
   private async readStored(voiceId: string): Promise<StoredVoiceProfile> {
     if (!/^voice-[a-f0-9-]+$/u.test(voiceId)) {
-      throw new Error("声音编号无效。");
+      throw new Error("找不到这个声音，请刷新后重试。");
     }
     const profilePath = path.join(this.voicesRoot, voiceId, "profile.json");
     const value: unknown = JSON.parse(await readFile(profilePath, "utf8"));
@@ -392,9 +601,41 @@ export class VoiceStore {
       !("referenceText" in value) ||
       typeof value.referenceText !== "string"
     ) {
-      throw new Error("声音配置文件无效。");
+      throw new Error("这个声音的数据已损坏，请重新克隆。");
     }
-    return value as StoredVoiceProfile;
+    const stored = value as StoredVoiceProfile;
+    if (
+      stored.referenceSamples !== undefined &&
+      (!Array.isArray(stored.referenceSamples) ||
+        stored.referenceSamples.length < 1 ||
+        stored.referenceSamples.length > 5 ||
+        stored.referenceSamples.some(
+          (sample) =>
+            typeof sample !== "object" ||
+            sample === null ||
+            !/^sample-[a-zA-Z0-9-]{1,120}$/u.test(sample.id) ||
+            typeof sample.name !== "string" ||
+            !sample.name.trim() ||
+            typeof sample.createdAt !== "string" ||
+            Number.isNaN(Date.parse(sample.createdAt)) ||
+            typeof sample.sampleFile !== "string" ||
+            path.basename(sample.sampleFile) !== sample.sampleFile ||
+            typeof sample.referenceText !== "string" ||
+            typeof sample.sampleSha256 !== "string" ||
+            !/^[a-f0-9]{64}$/u.test(sample.sampleSha256),
+        ))
+    ) {
+      throw new Error("这个声音的录音数据已损坏，请重新添加录音。");
+    }
+    if (
+      stored.activeSampleId !== undefined &&
+      !storedSamples(stored).some(
+        (sample) => sample.id === stored.activeSampleId,
+      )
+    ) {
+      throw new Error("当前使用的录音已不存在，请重新选择。");
+    }
+    return stored;
   }
 
   private prunePending(): void {

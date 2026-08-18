@@ -21,14 +21,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ToastRegion } from "./components/ToastRegion";
 import { WindowTitleBar } from "./components/WindowTitleBar";
 import { desktopApi } from "./lib/desktopApi";
-import { DialoguePage } from "./pages/DialoguePage";
-import { GeneratePage } from "./pages/GeneratePage";
-import { HelpPage } from "./pages/HelpPage";
-import { ModelsPage } from "./pages/ModelsPage";
-import { ProjectsPage } from "./pages/ProjectsPage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { SubtitlesPage } from "./pages/SubtitlesPage";
-import { VoicesPage } from "./pages/VoicesPage";
+import { featureRegistry } from "./featureRegistry";
 import { useStudioStore } from "./store/studioStore";
 
 const RoutedContent = () => {
@@ -77,14 +70,9 @@ const RoutedContent = () => {
     >
       <div ref={contentRef} className="route-content">
         <Routes location={location}>
-          <Route path="/" element={<GeneratePage />} />
-          <Route path="/subtitles" element={<SubtitlesPage />} />
-          <Route path="/dialogue" element={<DialoguePage />} />
-          <Route path="/voices" element={<VoicesPage />} />
-          <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/models" element={<ModelsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/help" element={<HelpPage />} />
+          {featureRegistry.map(({ path, component: Component }) => (
+            <Route key={path} path={path} element={<Component />} />
+          ))}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

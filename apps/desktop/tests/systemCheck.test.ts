@@ -13,6 +13,7 @@ const workerFiles = [
   "common/worker/server_core.py",
   "common/worker/install_assets.py",
   "common/worker/merge_audio.py",
+  "common/worker/inspect_audio.py",
   "voxcpm2/worker/server.py",
   "voxcpm2/model-manifest.json",
   "fun-cosyvoice3/worker/server.py",

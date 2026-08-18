@@ -16,6 +16,8 @@ files:
 extraResources:
   - from: licenses
     to: licenses
+  - from: prompts
+    to: prompts
   - from: engines/common
     to: engines/common
     filter:
@@ -44,7 +46,7 @@ extraResources:
     to: build
 extraMetadata:
   name: shengzuo
-  description: "声作是一款面向创作者的 Windows 本地声音克隆与配音工作台"
+  description: "声作是一款 Windows 本地声音克隆、长稿配音与多人脚本工作台"
   main: apps/desktop/dist-electron/main/index.cjs
 win:
   executableName: ShengZuo

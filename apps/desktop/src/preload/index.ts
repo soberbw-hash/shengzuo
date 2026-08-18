@@ -85,6 +85,14 @@ const desktopApi: DesktopApi = {
       ),
     create: (request) =>
       ipcRenderer.invoke(IPC_CHANNELS.voices.create, request),
+    rename: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.voices.rename, request),
+    addSample: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.voices.addSample, request),
+    selectSampleForVoice: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.voices.selectSampleForVoice, request),
+    removeSample: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.voices.removeSample, request),
     remove: (voiceId) =>
       ipcRenderer.invoke(IPC_CHANNELS.voices.remove, voiceId),
   },
@@ -105,6 +113,16 @@ const desktopApi: DesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.audio.exportResult, request),
     openExportFolder: () =>
       ipcRenderer.invoke(IPC_CHANNELS.audio.openExportFolder),
+  },
+  smart: {
+    getConfig: () => ipcRenderer.invoke(IPC_CHANNELS.smart.getConfig),
+    updateConfig: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.smart.updateConfig, request),
+    testConnection: () => ipcRenderer.invoke(IPC_CHANNELS.smart.testConnection),
+    processText: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.smart.processText, request),
+    processDialogue: (request) =>
+      ipcRenderer.invoke(IPC_CHANNELS.smart.processDialogue, request),
   },
 };
 

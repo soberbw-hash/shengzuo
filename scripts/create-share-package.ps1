@@ -79,6 +79,7 @@ foreach ($engineName in @('common', 'voxcpm2', 'fun-cosyvoice3', 'indextts2-5'))
 }
 
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'licenses') -Destination $appRoot -Recurse -Force
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'prompts') -Destination $appRoot -Recurse -Force
 
 Get-ChildItem -LiteralPath $appRoot -Directory -Recurse -Force |
   Where-Object { $_.Name -eq '__pycache__' } |
@@ -115,7 +116,7 @@ exit /b 2
 [IO.File]::WriteAllText((Join-Path $stagingRoot '启动.cmd'), $normalLauncher, [Text.Encoding]::ASCII)
 
 $usageGuide = @"
-声作 1.0.2 · 完整便携版
+声作 $version · 完整便携版
 ============================
 
 让自己的声音，成为作品。
@@ -147,7 +148,6 @@ $usageGuide = @"
 字幕配音会逐句缓存。中途失败、取消或重开软件后，重试只生成未完成或修改过的句子。
 可以连续提交多份配音，在“项目与记录”查看后台队列、取消、失败重试或继续编辑已保存稿件。
 
-打开软件左下角“使用帮助”，可以查看完整三步说明、模型选择、常见问题、隐私和当前版本。
 需要更新时，在“设置”点击“检查更新”，有新版会打开 GitHub 下载页；模型库不需要重新下载。
 
 模型文件夹
@@ -197,7 +197,7 @@ $versionInfo = @"
 - 模型下载位置选择、完整模型库迁移和录音拖入
 - 自定义导出文件名规则、实时预览和上次导出位置记忆
 - 手动检查 GitHub 正式更新并打开下载页
-- 首页三步引导、独立使用帮助、常见问题、隐私授权与关于信息
+- 首页三步引导、API 文稿整理、脚本角色提取、隐私说明与软件许可
 
 权重说明：
 每位使用者在软件内按需下载，关键文件通过 SHA-256 校验后启用；分享包本身不携带模型权重、私人录音或生成结果。

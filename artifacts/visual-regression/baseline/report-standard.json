@@ -14,9 +14,42 @@
     "name": "02-subtitles",
     "route": "/subtitles",
     "width": 1280,
-    "height": 800,
+    "height": 720,
     "scale": 1,
-    "fileName": "02-subtitles-1280x800@1x.png",
+    "fileName": "02-subtitles-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02a-pronunciation-dictionary",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02a-pronunciation-dictionary-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02c-smart-text",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02c-smart-text-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02d-api-missing",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02d-api-missing-1280x720@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []
@@ -35,10 +68,32 @@
   {
     "name": "03-dialogue",
     "route": "/dialogue",
-    "width": 1440,
-    "height": 900,
+    "width": 1280,
+    "height": 720,
     "scale": 1,
-    "fileName": "03-dialogue-1440x900@1x.png",
+    "fileName": "03-dialogue-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "03a-dialogue-smart-review",
+    "route": "/dialogue",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "03a-dialogue-smart-review-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "03b-dialogue-api-missing",
+    "route": "/dialogue",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "03b-dialogue-api-missing-1280x720@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []
@@ -61,6 +116,17 @@
     "height": 800,
     "scale": 1,
     "fileName": "04b-voice-drag-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "04c-voice-samples",
+    "route": "/voices",
+    "width": 1280,
+    "height": 800,
+    "scale": 1,
+    "fileName": "04c-voice-samples-1280x800@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []
@@ -121,12 +187,12 @@
     "consoleErrors": []
   },
   {
-    "name": "08-help",
-    "route": "/help",
+    "name": "07d-smart-api",
+    "route": "/settings",
     "width": 1280,
     "height": 800,
     "scale": 1,
-    "fileName": "08-help-1280x800@1x.png",
+    "fileName": "07d-smart-api-1280x800@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []

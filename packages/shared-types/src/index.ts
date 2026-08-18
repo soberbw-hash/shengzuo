@@ -1,5 +1,5 @@
 export const APP_NAME = "声作";
-export const APP_VERSION = "1.0.2";
+export const APP_VERSION = "1.0.0";
 export const APP_DESCRIPTOR = "本地声音创作工作台";
 export const APP_TAGLINE = "让自己的声音，成为作品。";
 
@@ -7,15 +7,15 @@ export const MODEL_CATALOG = [
   {
     id: "voxcpm2",
     name: "VoxCPM2",
-    purpose: "真实克隆·情绪·声音设计",
-    summary: "功能最完整，不知道选哪个就下载它。",
-    badge: "综合最推荐",
+    purpose: "克隆、旁白、角色配音",
+    summary: "不知道选哪个，就用这个。",
+    badge: "首选",
     rating: 5,
     ratingLabel: "综合最推荐",
     version: "2.0.3 / 2026-08",
-    estimatedSize: "约 15 GB（运行环境、缓存与权重）",
-    recommendedHardware: "NVIDIA 8GB 以上显存",
-    hardwareNote: "支持 30 种语言、9 种中文方言和自然语言风格控制",
+    estimatedSize: "约 15 GB",
+    recommendedHardware: "NVIDIA 显卡，8GB 显存",
+    hardwareNote: "30 种语言、9 种中文方言",
     license: "Apache License 2.0",
     suitable: true,
     available: true,
@@ -23,15 +23,15 @@ export const MODEL_CATALOG = [
   {
     id: "fun-cosyvoice3-0.5b",
     name: "Fun-CosyVoice3 0.5B 2512",
-    purpose: "更多中文方言·口音控制",
-    summary: "提供 19 种中文方言/口音选择，方言创作优先下载它。",
-    badge: "方言更多",
+    purpose: "方言配音、地方口音",
+    summary: "想说方言，就用这个。",
+    badge: "方言多",
     rating: 4.5,
     ratingLabel: "方言创作首选",
     version: "2512 / 2026-05",
-    estimatedSize: "约 16 GB（运行环境、缓存与权重）",
-    recommendedHardware: "NVIDIA 8GB 以上显存",
-    hardwareNote: "支持 19 种中文方言/口音",
+    estimatedSize: "约 16 GB",
+    recommendedHardware: "NVIDIA 显卡，8GB 显存",
+    hardwareNote: "19 种中文方言和口音",
     license: "Apache License 2.0",
     suitable: true,
     available: true,
@@ -39,15 +39,15 @@ export const MODEL_CATALOG = [
   {
     id: "indextts2-5",
     name: "IndexTTS-2.5",
-    purpose: "真实克隆·情绪演绎·发音控制",
-    summary: "情绪和多语言表现突出，适合需要细腻语气的内容。",
-    badge: "情绪演绎",
+    purpose: "情绪旁白、角色台词",
+    summary: "想要更细腻的语气，就用这个。",
+    badge: "情绪强",
     rating: 4.8,
     ratingLabel: "表现力推荐",
     version: "2.5 / 2026-08",
-    estimatedSize: "约 18 GB（运行环境、缓存与权重）",
-    recommendedHardware: "NVIDIA 12GB 以上显存",
-    hardwareNote: "支持中文、英语、日语、西班牙语和阿拉伯语",
+    estimatedSize: "约 18 GB",
+    recommendedHardware: "NVIDIA 显卡，12GB 显存",
+    hardwareNote: "中文、英语、日语、西语、阿语",
     license: "bilibili Model Use License",
     suitable: true,
     available: true,
@@ -55,6 +55,38 @@ export const MODEL_CATALOG = [
 ] as const;
 
 export type ModelId = (typeof MODEL_CATALOG)[number]["id"];
+
+export const SINGLE_GENERATION_TEXT_LIMITS: Record<ModelId, number> = {
+  voxcpm2: 2_000,
+  "fun-cosyvoice3-0.5b": 2_000,
+  "indextts2-5": 2_000,
+};
+
+export const countMeaningfulCharacters = (text: string): number =>
+  Array.from(text.replace(/\s/gu, "")).length;
+
+export const createTitleFromText = (
+  text: string,
+  fallback = "单段配音",
+): string => {
+  const compact = Array.from(text.replace(/\s/gu, ""))
+    .slice(0, 12)
+    .join("")
+    .replace(/[，。！？!?；;：:、,.]+$/gu, "");
+  return compact || fallback;
+};
+
+export const takeMeaningfulPrefix = (text: string, limit: number): string => {
+  if (!Number.isInteger(limit) || limit < 1) return "";
+  let result = "";
+  let count = 0;
+  for (const character of text) {
+    result += character;
+    if (!/\s/u.test(character)) count += 1;
+    if (count >= limit) break;
+  }
+  return result.trim();
+};
 
 export const LANGUAGE_OPTIONS = [
   { id: "auto", label: "自动识别", group: "common" },
@@ -111,6 +143,32 @@ export const LANGUAGE_OPTIONS = [
 ] as const;
 
 export type Language = (typeof LANGUAGE_OPTIONS)[number]["id"];
+
+export const isDialectLanguage = (language: Language): boolean =>
+  LANGUAGE_OPTIONS.find((option) => option.id === language)?.group ===
+  "dialect";
+
+export const getModelGenerationCapabilities = (
+  modelId: ModelId,
+  language: Language,
+): {
+  emotion: boolean;
+  expression: boolean;
+  presets: readonly GenerationPresetId[];
+} => {
+  const configured = MODEL_GENERATION_CAPABILITIES[modelId];
+  const expression =
+    configured.expression === "always" ||
+    (configured.expression === "dialect-only" && isDialectLanguage(language));
+  return {
+    emotion: configured.emotion,
+    expression,
+    presets:
+      configured.expression === "dialect-only" && !expression
+        ? configured.presets.filter((preset) => preset !== "expressive")
+        : configured.presets,
+  };
+};
 
 export const MODEL_LANGUAGE_SUPPORT: Record<ModelId, readonly Language[]> = {
   voxcpm2: [
@@ -204,6 +262,83 @@ export type EngineStatus =
 
 export type OutputFormat = "mp3";
 export type Emotion = "自然" | "温暖" | "开心" | "沉稳" | "激动" | "悲伤";
+export const EMOTION_OPTIONS: readonly Emotion[] = [
+  "自然",
+  "温暖",
+  "开心",
+  "沉稳",
+  "激动",
+  "悲伤",
+];
+
+export type GenerationPresetId = "natural" | "longform" | "expressive";
+export type GenerationQualityMode = "standard" | "careful";
+export type ModelExpressionSupport = "always" | "dialect-only" | "none";
+
+export const GENERATION_PRESETS = [
+  {
+    id: "natural",
+    label: "自然口播",
+    description: "速度和停顿更接近日常说话",
+    qualityMode: "standard",
+  },
+  {
+    id: "longform",
+    label: "稳健长稿",
+    description: "分段更短，逐段检查并自动重试",
+    qualityMode: "careful",
+  },
+  {
+    id: "expressive",
+    label: "情绪演绎",
+    description: "保留更多情绪和角色表现",
+    qualityMode: "careful",
+  },
+] as const satisfies readonly {
+  id: GenerationPresetId;
+  label: string;
+  description: string;
+  qualityMode: GenerationQualityMode;
+}[];
+
+export const MODEL_GENERATION_CAPABILITIES: Record<
+  ModelId,
+  {
+    emotion: boolean;
+    expression: ModelExpressionSupport;
+    presets: readonly GenerationPresetId[];
+  }
+> = {
+  voxcpm2: {
+    emotion: false,
+    expression: "always",
+    presets: ["natural", "longform", "expressive"],
+  },
+  "fun-cosyvoice3-0.5b": {
+    emotion: false,
+    expression: "dialect-only",
+    presets: ["natural", "longform", "expressive"],
+  },
+  "indextts2-5": {
+    emotion: true,
+    expression: "always",
+    presets: ["natural", "longform", "expressive"],
+  },
+};
+
+export interface PronunciationRule {
+  id: string;
+  source: string;
+  replacement: string;
+  enabled: boolean;
+}
+
+export interface GenerationQualitySummary {
+  status: "passed" | "warning";
+  checkedSegments: number;
+  retriedSegments: number;
+  note: string;
+}
 
 export const DEFAULT_EXPORT_NAMING_TEMPLATE = "{项目}_{日期}_{时间}";
 
@@ -225,6 +360,10 @@ export interface AudioResult {
   modelId?: ModelId;
   title?: string;
   kind?: "single" | "subtitles" | "dialogue";
+  preview?: boolean;
+  projectId?: string;
+  takeNumber?: number;
+  quality?: GenerationQualitySummary;
 }
 
 export interface ExportNamingSettings {
@@ -325,12 +464,22 @@ export interface VoiceProfile {
   sampleName: string;
   hasReferenceText: boolean;
   createdAt: string;
+  referenceSamples?: VoiceReferenceSample[];
+  previewUrl?: string;
+}
+
+export interface VoiceReferenceSample {
+  id: string;
+  name: string;
+  createdAt: string;
+  active: boolean;
 }
 
 export interface VoiceSampleSelection {
   canceled: boolean;
   sampleToken?: string;
   fileName?: string;
+  previewUrl?: string;
   quality?: VoiceSampleQuality;
 }
 
@@ -351,6 +500,27 @@ export interface CreateVoiceProfileRequest {
   sampleToken: string;
   name: string;
   referenceText: string;
+}
+
+export interface RenameVoiceProfileRequest {
+  voiceId: string;
+  name: string;
+}
+
+export interface AddVoiceSampleRequest {
+  voiceId: string;
+  sampleToken: string;
+  referenceText: string;
+}
+
+export interface SelectVoiceSampleRequest {
+  voiceId: string;
+  sampleId: string;
+}
+
+export interface RemoveVoiceSampleRequest {
+  voiceId: string;
+  sampleId: string;
 }
 
 export interface EngineSnapshot {
@@ -374,6 +544,7 @@ export type DownloadSource = "official" | "mirror";
 
 export interface GenerationRequest {
   requestId: string;
+  title: string;
   modelId: ModelId;
   voiceId: string;
   text: string;
@@ -383,6 +554,10 @@ export interface GenerationRequest {
   speed: number;
   volume: number;
   format: OutputFormat;
+  preview?: boolean;
+  projectId?: string;
+  presetId?: GenerationPresetId;
+  pronunciationRules?: PronunciationRule[];
 }
 
 export interface BatchGenerationSegment {
@@ -390,6 +565,9 @@ export interface BatchGenerationSegment {
   voiceId: string;
   text: string;
   label?: string;
+  expression?: string;
+  emotion?: Emotion;
+  speed?: number;
 }
 
 export interface BatchGenerationRequest {
@@ -405,6 +583,8 @@ export interface BatchGenerationRequest {
   title: string;
   kind: "subtitles" | "dialogue";
   projectId?: string;
+  presetId?: GenerationPresetId;
+  pronunciationRules?: PronunciationRule[];
 }
 
 export type ProjectKind = "single" | "subtitles" | "dialogue";
@@ -414,6 +594,9 @@ export interface ProjectSegment {
   text: string;
   voiceId?: string;
   label?: string;
+  expression?: string;
+  emotion?: Emotion;
+  speed?: number;
   startTime?: string;
   endTime?: string;
 }
@@ -431,6 +614,8 @@ export interface GenerationProject {
   expression: string;
   sourceText: string;
   segments: ProjectSegment[];
+  presetId?: GenerationPresetId;
+  pronunciationRules?: PronunciationRule[];
   createdAt: string;
   updatedAt: string;
 }
@@ -497,6 +682,73 @@ export interface ModelLibraryChangeResult {
 export interface DiagnosticsExportResult {
   canceled: boolean;
   filePath?: string;
+}
+
+export type SmartTextAction =
+  | "spoken"
+  | "pause"
+  | "concise"
+  | "pronunciation"
+  | "translate"
+  | "custom";
+
+export interface SmartApiConfig {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  hasApiKey: boolean;
+}
+
+export interface UpdateSmartApiConfigRequest {
+  enabled: boolean;
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+  clearApiKey?: boolean;
+}
+
+export interface SmartApiConnectionResult {
+  ok: boolean;
+  message: string;
+  model: string;
+}
+
+export interface SmartPronunciationSuggestion {
+  source: string;
+  replacement: string;
+}
+
+export interface SmartTextRequest {
+  action: SmartTextAction;
+  text: string;
+  customInstruction?: string;
+  targetLanguage?: string;
+  modelId: ModelId;
+  language: Language;
+}
+
+export interface SmartTextResult {
+  revisedText: string;
+  summary: string;
+  pronunciations: SmartPronunciationSuggestion[];
+  expressionSuggestion?: string;
+  emotionSuggestion?: Emotion;
+}
+
+export interface SmartDialogueScriptRequest {
+  text: string;
+}
+
+export interface SmartDialogueLine {
+  role: string;
+  text: string;
+}
+
+export interface SmartDialogueScriptResult {
+  lines: SmartDialogueLine[];
+  roles: string[];
+  summary: string;
+  removedContent: string[];
 }
 
 export interface AppUpdateCheckResult {
@@ -617,6 +869,12 @@ export interface DesktopApi {
     selectSample: () => Promise<VoiceSampleSelection>;
     selectDroppedSample: (file: File) => Promise<VoiceSampleSelection>;
     create: (request: CreateVoiceProfileRequest) => Promise<VoiceProfile>;
+    rename: (request: RenameVoiceProfileRequest) => Promise<VoiceProfile>;
+    addSample: (request: AddVoiceSampleRequest) => Promise<VoiceProfile>;
+    selectSampleForVoice: (
+      request: SelectVoiceSampleRequest,
+    ) => Promise<VoiceProfile>;
+    removeSample: (request: RemoveVoiceSampleRequest) => Promise<VoiceProfile>;
     remove: (voiceId: string) => Promise<boolean>;
   };
   audio: {
@@ -629,6 +887,17 @@ export interface DesktopApi {
     removeResult: (resultId: string) => Promise<boolean>;
     exportResult: (request: ExportAudioRequest) => Promise<ExportAudioResult>;
     openExportFolder: () => Promise<boolean>;
+  };
+  smart: {
+    getConfig: () => Promise<SmartApiConfig>;
+    updateConfig: (
+      request: UpdateSmartApiConfigRequest,
+    ) => Promise<SmartApiConfig>;
+    testConnection: () => Promise<SmartApiConnectionResult>;
+    processText: (request: SmartTextRequest) => Promise<SmartTextResult>;
+    processDialogue: (
+      request: SmartDialogueScriptRequest,
+    ) => Promise<SmartDialogueScriptResult>;
   };
 }
 
@@ -678,6 +947,10 @@ export const IPC_CHANNELS = {
     selectSample: "voices:select-sample",
     selectDroppedSample: "voices:select-dropped-sample",
     create: "voices:create",
+    rename: "voices:rename",
+    addSample: "voices:add-sample",
+    selectSampleForVoice: "voices:select-sample-for-voice",
+    removeSample: "voices:remove-sample",
     remove: "voices:remove",
   },
   audio: {
@@ -688,6 +961,13 @@ export const IPC_CHANNELS = {
     removeResult: "audio:remove-result",
     exportResult: "audio:export-result",
     openExportFolder: "audio:open-export-folder",
+  },
+  smart: {
+    getConfig: "smart:get-config",
+    updateConfig: "smart:update-config",
+    testConnection: "smart:test-connection",
+    processText: "smart:process-text",
+    processDialogue: "smart:process-dialogue",
   },
 } as const;
 
@@ -700,7 +980,7 @@ export const ENGINE_STATUS_COPY: Record<
   }
 > = {
   "not-installed": {
-    label: "未准备",
+    label: "未下载",
     message: "点击“下载并使用”，系统会自动完成准备。",
     tone: "neutral",
   },
@@ -721,12 +1001,12 @@ export const ENGINE_STATUS_COPY: Record<
   },
   installing: {
     label: "正在安装",
-    message: "正在校验文件。",
+    message: "正在完成安装。",
     tone: "info",
   },
   loading: {
     label: "正在准备模型",
-    message: "正在启动引擎。",
+    message: "正在加载模型。",
     tone: "info",
   },
   ready: {
@@ -746,7 +1026,7 @@ export const ENGINE_STATUS_COPY: Record<
   },
   "generation-failed": {
     label: "生成失败",
-    message: "请重试或调整设置。",
+    message: "请检查文字、录音或模型后重试。",
     tone: "danger",
   },
   stopped: {
@@ -764,17 +1044,34 @@ const outputFormats = new Set<OutputFormat>(["mp3"]);
 const languages = new Set<Language>(
   LANGUAGE_OPTIONS.map((language) => language.id),
 );
-const emotions = new Set<Emotion>([
-  "自然",
-  "温暖",
-  "开心",
-  "沉稳",
-  "激动",
-  "悲伤",
-]);
+const emotions = new Set<Emotion>(EMOTION_OPTIONS);
+const generationPresetIds = new Set<GenerationPresetId>(
+  GENERATION_PRESETS.map((preset) => preset.id),
+);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
+
+const isPronunciationRule = (value: unknown): value is PronunciationRule =>
+  isRecord(value) &&
+  typeof value.id === "string" &&
+  /^[a-zA-Z0-9-]{1,120}$/u.test(value.id) &&
+  typeof value.source === "string" &&
+  value.source.trim().length > 0 &&
+  value.source.length <= 80 &&
+  typeof value.replacement === "string" &&
+  value.replacement.trim().length > 0 &&
+  value.replacement.length <= 160 &&
+  typeof value.enabled === "boolean";
+
+const hasValidGenerationOptions = (value: Record<string, unknown>): boolean =>
+  (value.presetId === undefined ||
+    (typeof value.presetId === "string" &&
+      generationPresetIds.has(value.presetId as GenerationPresetId))) &&
+  (value.pronunciationRules === undefined ||
+    (Array.isArray(value.pronunciationRules) &&
+      value.pronunciationRules.length <= 50 &&
+      value.pronunciationRules.every(isPronunciationRule)));
 
 export const isEngineStatus = (value: unknown): value is EngineStatus =>
   typeof value === "string" && engineStatuses.has(value as EngineStatus);
@@ -793,8 +1090,13 @@ export const isGenerationRequest = (
     /^[a-zA-Z0-9-]+$/u.test(value.requestId) &&
     isModelId(value.modelId) &&
     isVoiceId(value.voiceId) &&
+    typeof value.title === "string" &&
+    value.title.trim().length > 0 &&
+    value.title.length <= 120 &&
     typeof value.text === "string" &&
-    value.text.length <= 20_000 &&
+    value.text.length <= 50_000 &&
+    countMeaningfulCharacters(value.text) <=
+      SINGLE_GENERATION_TEXT_LIMITS[value.modelId] &&
     typeof value.expression === "string" &&
     value.expression.length <= 500 &&
     typeof value.language === "string" &&
@@ -808,7 +1110,10 @@ export const isGenerationRequest = (
     value.volume >= 0 &&
     value.volume <= 150 &&
     typeof value.format === "string" &&
-    outputFormats.has(value.format as OutputFormat)
+    outputFormats.has(value.format as OutputFormat) &&
+    (value.preview === undefined || typeof value.preview === "boolean") &&
+    (value.projectId === undefined || isProjectId(value.projectId)) &&
+    hasValidGenerationOptions(value)
   );
 };
 
@@ -832,9 +1137,20 @@ export const isBatchGenerationRequest = (
         isVoiceId(segment.voiceId) &&
         typeof segment.text === "string" &&
         segment.text.trim().length > 0 &&
-        segment.text.length <= 2_000 &&
+        segment.text.length <= 10_000 &&
+        countMeaningfulCharacters(segment.text) <= 2_000 &&
         (segment.label === undefined ||
-          (typeof segment.label === "string" && segment.label.length <= 40)),
+          (typeof segment.label === "string" && segment.label.length <= 40)) &&
+        (segment.expression === undefined ||
+          (typeof segment.expression === "string" &&
+            segment.expression.length <= 500)) &&
+        (segment.emotion === undefined ||
+          (typeof segment.emotion === "string" &&
+            emotions.has(segment.emotion as Emotion))) &&
+        (segment.speed === undefined ||
+          (typeof segment.speed === "number" &&
+            segment.speed >= 0.5 &&
+            segment.speed <= 2)),
     ) &&
     typeof value.language === "string" &&
     languages.has(value.language as Language) &&
@@ -856,7 +1172,8 @@ export const isBatchGenerationRequest = (
     value.title.trim().length > 0 &&
     value.title.length <= 120 &&
     (value.kind === "subtitles" || value.kind === "dialogue") &&
-    (value.projectId === undefined || isProjectId(value.projectId))
+    (value.projectId === undefined || isProjectId(value.projectId)) &&
+    hasValidGenerationOptions(value)
   );
 };
 
@@ -871,12 +1188,22 @@ const isProjectSegment = (value: unknown): value is ProjectSegment =>
   typeof value.id === "string" &&
   /^[a-zA-Z0-9-]+$/u.test(value.id) &&
   typeof value.text === "string" &&
-  value.text.length <= 2_000 &&
+  value.text.length <= 10_000 &&
+  countMeaningfulCharacters(value.text) <= 2_000 &&
   (value.voiceId === undefined ||
     value.voiceId === "" ||
     isVoiceId(value.voiceId)) &&
   (value.label === undefined ||
     (typeof value.label === "string" && value.label.length <= 40)) &&
+  (value.expression === undefined ||
+    (typeof value.expression === "string" && value.expression.length <= 500)) &&
+  (value.emotion === undefined ||
+    (typeof value.emotion === "string" &&
+      emotions.has(value.emotion as Emotion))) &&
+  (value.speed === undefined ||
+    (typeof value.speed === "number" &&
+      value.speed >= 0.5 &&
+      value.speed <= 2)) &&
   (value.startTime === undefined ||
     (typeof value.startTime === "string" && value.startTime.length <= 24)) &&
   (value.endTime === undefined ||
@@ -914,7 +1241,8 @@ export const isSaveProjectRequest = (
     typeof value.sourceText === "string" &&
     value.sourceText.length <= 50_000 &&
     value.segments.length <= 200 &&
-    value.segments.every(isProjectSegment)
+    value.segments.every(isProjectSegment) &&
+    hasValidGenerationOptions(value)
   );
 };
 
@@ -982,6 +1310,78 @@ export const isUpdateExportNamingSettingsRequest = (
 ): value is UpdateExportNamingSettingsRequest =>
   isRecord(value) && isExportNamingTemplate(value.template);
 
+const smartTextActions = new Set<SmartTextAction>([
+  "spoken",
+  "pause",
+  "concise",
+  "pronunciation",
+  "translate",
+  "custom",
+]);
+
+export const isSmartApiBaseUrl = (value: unknown): value is string => {
+  if (typeof value !== "string" || value.length < 8 || value.length > 2_048) {
+    return false;
+  }
+  try {
+    const url = new URL(value);
+    const localHttp =
+      url.protocol === "http:" &&
+      ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    return (
+      (url.protocol === "https:" || localHttp) &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  } catch {
+    return false;
+  }
+};
+
+export const isUpdateSmartApiConfigRequest = (
+  value: unknown,
+): value is UpdateSmartApiConfigRequest =>
+  isRecord(value) &&
+  typeof value.enabled === "boolean" &&
+  isSmartApiBaseUrl(value.baseUrl) &&
+  typeof value.model === "string" &&
+  value.model.trim().length > 0 &&
+  value.model.length <= 120 &&
+  (value.apiKey === undefined ||
+    (typeof value.apiKey === "string" && value.apiKey.length <= 500)) &&
+  (value.clearApiKey === undefined || typeof value.clearApiKey === "boolean");
+
+export const isSmartTextRequest = (value: unknown): value is SmartTextRequest =>
+  isRecord(value) &&
+  typeof value.action === "string" &&
+  smartTextActions.has(value.action as SmartTextAction) &&
+  typeof value.text === "string" &&
+  value.text.trim().length > 0 &&
+  value.text.length <= 50_000 &&
+  countMeaningfulCharacters(value.text) <= 20_000 &&
+  isModelId(value.modelId) &&
+  typeof value.language === "string" &&
+  languages.has(value.language as Language) &&
+  (value.customInstruction === undefined ||
+    (typeof value.customInstruction === "string" &&
+      value.customInstruction.length <= 500)) &&
+  (value.targetLanguage === undefined ||
+    (typeof value.targetLanguage === "string" &&
+      value.targetLanguage.length <= 60)) &&
+  (value.action !== "custom" || Boolean(value.customInstruction?.trim())) &&
+  (value.action !== "translate" || Boolean(value.targetLanguage?.trim()));
+
+export const isSmartDialogueScriptRequest = (
+  value: unknown,
+): value is SmartDialogueScriptRequest =>
+  isRecord(value) &&
+  typeof value.text === "string" &&
+  value.text.trim().length > 0 &&
+  value.text.length <= 50_000 &&
+  countMeaningfulCharacters(value.text) <= 40_000;
+
 export const isCreateVoiceProfileRequest = (
   value: unknown,
 ): value is CreateVoiceProfileRequest => {
@@ -998,6 +1398,40 @@ export const isCreateVoiceProfileRequest = (
     value.referenceText.length <= 1_000
   );
 };
+
+export const isRenameVoiceProfileRequest = (
+  value: unknown,
+): value is RenameVoiceProfileRequest =>
+  isRecord(value) &&
+  isVoiceId(value.voiceId) &&
+  typeof value.name === "string" &&
+  value.name.trim().length > 0 &&
+  value.name.length <= 24;
+
+const isVoiceSampleId = (value: unknown): value is string =>
+  typeof value === "string" && /^sample-[a-zA-Z0-9-]{1,120}$/u.test(value);
+
+export const isAddVoiceSampleRequest = (
+  value: unknown,
+): value is AddVoiceSampleRequest =>
+  isRecord(value) &&
+  isVoiceId(value.voiceId) &&
+  typeof value.sampleToken === "string" &&
+  /^[a-f0-9-]{1,120}$/u.test(value.sampleToken) &&
+  typeof value.referenceText === "string" &&
+  value.referenceText.trim().length > 0 &&
+  value.referenceText.length <= 1_000;
+
+export const isSelectVoiceSampleRequest = (
+  value: unknown,
+): value is SelectVoiceSampleRequest =>
+  isRecord(value) &&
+  isVoiceId(value.voiceId) &&
+  isVoiceSampleId(value.sampleId);
+
+export const isRemoveVoiceSampleRequest = (
+  value: unknown,
+): value is RemoveVoiceSampleRequest => isSelectVoiceSampleRequest(value);
 
 export const isVoiceId = (value: unknown): value is string =>
   typeof value === "string" &&

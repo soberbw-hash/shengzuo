@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyTextReplacementRules,
   parseDialogueScript,
   parseSubtitleDocument,
+  speechPauseAfter,
   splitTextByPunctuation,
+  splitTextForSpeech,
 } from "../src/index";
 
 void test("splits mixed Chinese punctuation into stable segments", () => {
@@ -20,6 +23,55 @@ void test("splits plain text on punctuation and line breaks", () => {
     "第二行。",
     "第三句！",
   ]);
+});
+
+void test("keeps a short speech in one natural chunk", () => {
+  assert.deepEqual(splitTextForSpeech("大家好，我是郑轮。今天开始录音。"), [
+    "大家好，我是郑轮。今天开始录音。",
+  ]);
+});
+
+void test("splits long speech without dropping or reordering characters", () => {
+  const source = `${"第一句很长，".repeat(24)}最后一句。\n${"第二段内容！".repeat(12)}`;
+  const chunks = splitTextForSpeech(source, 60);
+  assert.ok(chunks.length > 1);
+  assert.ok(
+    chunks.every((chunk) => Array.from(chunk.replace(/\s/gu, "")).length <= 60),
+  );
+  assert.equal(chunks.join("").replace(/\s/gu, ""), source.replace(/\s/gu, ""));
+});
+
+void test("hard-splits a long sentence without punctuation", () => {
+  const source = "长".repeat(145);
+  const chunks = splitTextForSpeech(source, 60);
+  assert.deepEqual(
+    chunks.map((chunk) => chunk.length),
+    [60, 60, 25],
+  );
+  assert.equal(chunks.join(""), source);
+});
+
+void test("pronunciation replacements are literal and longest-first", () => {
+  assert.equal(
+    applyTextReplacementRules("AI助手和A助手", [
+      { source: "A", replacement: "诶" },
+      { source: "AI", replacement: "A I" },
+    ]),
+    "A I助手和诶助手",
+  );
+  assert.equal(
+    applyTextReplacementRules("C++", [
+      { source: "C++", replacement: "C plus plus" },
+    ]),
+    "C plus plus",
+  );
+});
+
+void test("semantic pauses follow punctuation without becoming excessive", () => {
+  assert.equal(speechPauseAfter("第一句。", 80), 180);
+  assert.equal(speechPauseAfter("还有，", 80), 100);
+  assert.equal(speechPauseAfter("继续", 80), 80);
+  assert.equal(speechPauseAfter("等等……", 80), 260);
 });
 
 void test("parses SRT cues without losing cue boundaries or timestamps", () => {
@@ -59,9 +111,19 @@ void test("parses SRT cues even when blank separators are missing", () => {
   );
 });
 
-void test("parses character lines and falls back to narration", () => {
+void test("parses formatted character lines and ignores unformatted descriptions", () => {
   const lines = parseDialogueScript("林舟：我们开始吧。\n镜头缓缓推进。");
   assert.equal(lines[0]?.character, "林舟");
-  assert.equal(lines[1]?.character, "旁白");
-  assert.equal(lines[1]?.isNarration, true);
+  assert.equal(lines.length, 1);
+});
+
+void test("keeps custom names when a dialogue has more than four roles", () => {
+  const source = ["旁白", "林舟", "阿宁", "老周", "小雨", "店长"]
+    .map((role, index) => `${role}：这是第 ${index + 1} 句。`)
+    .join("\n");
+  const lines = parseDialogueScript(source);
+  assert.deepEqual(
+    lines.map((line) => line.character),
+    ["旁白", "林舟", "阿宁", "老周", "小雨", "店长"],
+  );
 });

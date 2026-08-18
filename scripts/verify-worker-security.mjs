@@ -3,10 +3,12 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
-const appData = process.env.APPDATA;
-if (!appData) throw new Error("APPDATA is unavailable.");
+const localAppData = process.env.LOCALAPPDATA;
+if (!localAppData) throw new Error("LOCALAPPDATA is unavailable.");
 
-const runtimeRoot = path.join(appData, "声作", "engines", "voxcpm2");
+const modelLibrary =
+  process.env.SHENGZUO_MODEL_LIBRARY ?? path.join(localAppData, "声作模型库");
+const runtimeRoot = path.join(modelLibrary, "voxcpm2");
 const python = path.join(runtimeRoot, "runtime", "python.exe");
 const weights = path.join(runtimeRoot, "weights", "VoxCPM2");
 const server = path.resolve("engines/voxcpm2/worker/server.py");

@@ -1,9 +1,7 @@
 import {
   Box,
-  ChevronRight,
   Cpu,
   Download,
-  HardDrive,
   Pause,
   Play,
   RefreshCw,
@@ -18,7 +16,6 @@ import {
   LANGUAGE_OPTIONS,
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
-  type AppRuntimeInfo,
   type DownloadSource,
   type EngineStatus,
   type ModelStorageInfo,
@@ -84,7 +81,7 @@ const stateAction = (
   if (status === "installing") return { label: "暂停", icon: Pause };
   if (status === "download-paused") return { label: "继续", icon: Play };
   if (status === "download-failed")
-    return { label: "失败重试", icon: RefreshCw };
+    return { label: "重新下载", icon: RefreshCw };
   if (
     status === "ready" ||
     status === "success" ||
@@ -115,8 +112,9 @@ export const ModelsPage = () => {
     Partial<Record<ModelId, ModelStorageInfo>>
   >({});
   const [importingModel, setImportingModel] = useState<ModelId | null>(null);
-  const [runtimeInfo, setRuntimeInfo] = useState<AppRuntimeInfo | null>(null);
   const [modelsPath, setModelsPath] = useState("正在读取…");
+  const [dialectsOpen, setDialectsOpen] = useState(false);
+  const [licenseModelId, setLicenseModelId] = useState<ModelId | null>(null);
   const [pendingDownload, setPendingDownload] = useState<ModelId | null>(
     MODEL_CATALOG.some((model) => model.id === previewDownload)
       ? (previewDownload as ModelId)
@@ -159,13 +157,7 @@ export const ModelsPage = () => {
   }, [isTestState, setEngines]);
 
   useEffect(() => {
-    void Promise.all([
-      desktopApi.app.getRuntimeInfo(),
-      desktopApi.app.getModelsPath(),
-    ]).then(([runtime, currentModelsPath]) => {
-      setRuntimeInfo(runtime);
-      setModelsPath(currentModelsPath);
-    });
+    void desktopApi.app.getModelsPath().then(setModelsPath);
   }, []);
 
   const changeDownloadSource = async (source: DownloadSource) => {
@@ -192,7 +184,7 @@ export const ModelsPage = () => {
       const result = await desktopApi.models.importOffline(modelId);
       if (result.canceled) return;
       pushToast({
-        title: result.imported ? "离线模型已导入" : "模型没有导入",
+        title: result.imported ? "模型已导入" : "模型没有导入",
         description: result.message,
         tone: result.imported ? "success" : "danger",
       });
@@ -206,7 +198,7 @@ export const ModelsPage = () => {
       }
     } catch (error) {
       pushToast({
-        title: "离线模型没有导入",
+        title: "模型没有导入",
         description: error instanceof Error ? error.message : "请重试。",
         tone: "danger",
       });
@@ -286,8 +278,8 @@ export const ModelsPage = () => {
   return (
     <div className="page-content">
       <PageHeader
-        title="模型目录"
-        description="安装并管理本机声音模型。"
+        title="选择模型"
+        description="看用途选一个；拿不准就用 VoxCPM2。"
         actions={
           <Button
             variant="secondary"
@@ -301,8 +293,8 @@ export const ModelsPage = () => {
 
       <div className="model-download-toolbar">
         <div>
-          <strong>下载方式</strong>
-          <p>自动检查磁盘空间并保留中断进度；官方源慢时可切换备用源。</p>
+          <strong>下载设置</strong>
+          <p>下载慢就换备用源，关闭软件后也能继续。</p>
         </div>
         <SelectField
           label="下载源"
@@ -384,8 +376,7 @@ export const ModelsPage = () => {
                     <span className="model-recommendation">{model.badge}</span>
                     <StatusBadge tone={copy.tone}>{copy.label}</StatusBadge>
                   </div>
-                  <p>{model.purpose}</p>
-                  <small className="model-card__summary">{model.summary}</small>
+                  <p className="model-card__summary">{model.summary}</p>
                   <ModelRating value={model.rating} label={model.ratingLabel} />
                 </div>
                 <div className="model-card__actions">
@@ -409,46 +400,50 @@ export const ModelsPage = () => {
                       onClick={() => void importOffline(model.id)}
                     >
                       <PackageOpen className="h-3.5 w-3.5" />
-                      {importingModel === model.id ? "正在导入…" : "离线导入"}
+                      {importingModel === model.id
+                        ? "正在导入…"
+                        : "从文件夹导入"}
                     </button>
                   ) : null}
                 </div>
               </div>
-              <div className="model-spec-grid">
+              <div className="model-facts">
                 <div>
-                  <span>
-                    <HardDrive className="h-3.5 w-3.5" />
-                    预计空间
-                  </span>
+                  <span>适合</span>
+                  <strong>{model.purpose}</strong>
+                </div>
+                <div>
+                  <span>电脑需要</span>
+                  <strong>{model.recommendedHardware}</strong>
+                </div>
+                <div>
+                  <span>占用空间</span>
                   <strong>{model.estimatedSize}</strong>
                   {storageInfo ? (
-                    <small>磁盘可用 {formatBytes(storageInfo.freeBytes)}</small>
+                    <small>还剩 {formatBytes(storageInfo.freeBytes)}</small>
                   ) : null}
                 </div>
                 <div>
-                  <span>
-                    <Cpu className="h-3.5 w-3.5" />
-                    推荐硬件
-                  </span>
-                  <strong>{model.recommendedHardware}</strong>
-                  <small>{model.hardwareNote}</small>
-                  {runtimeInfo ? (
-                    <small>本机：{runtimeInfo.hardware.summary}</small>
+                  <span>语言</span>
+                  <strong>{model.hardwareNote}</strong>
+                  {model.id === COSYVOICE_ID ? (
+                    <button
+                      type="button"
+                      className="model-dialect-button"
+                      onClick={() => setDialectsOpen(true)}
+                    >
+                      查看全部
+                    </button>
                   ) : null}
                 </div>
               </div>
-              {model.id === COSYVOICE_ID ? (
-                <div className="model-dialects">
-                  <strong>
-                    支持的方言/口音（{COSYVOICE_DIALECTS.length}）
-                  </strong>
-                  <div>
-                    {COSYVOICE_DIALECTS.map((dialect) => (
-                      <span key={dialect.id}>{dialect.label}</span>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <button
+                type="button"
+                className="model-license-button"
+                onClick={() => setLicenseModelId(model.id)}
+              >
+                查看模型许可证
+              </button>
               {modelSnapshot &&
               modelSnapshot.progress > 0 &&
               status !== "ready" ? (
@@ -459,24 +454,42 @@ export const ModelsPage = () => {
                   />
                 </div>
               ) : null}
-              <div className="model-card__footer">
-                <button
-                  onClick={() =>
-                    pushToast({
-                      title: model.license,
-                      tone: "success",
-                    })
-                  }
-                >
-                  许可证
-                  <ChevronRight className="h-3.5 w-3.5" />
-                </button>
-                <span className="ml-auto">版本：{model.version}</span>
-              </div>
             </GlassCard>
           );
         })}
       </div>
+
+      <Modal
+        open={dialectsOpen}
+        title={`${COSYVOICE_DIALECTS.length} 种方言和口音`}
+        description="CosyVoice 可以直接选择下面这些说法。"
+        onClose={() => setDialectsOpen(false)}
+        footer={<Button onClick={() => setDialectsOpen(false)}>知道了</Button>}
+      >
+        <div className="model-dialect-list">
+          {COSYVOICE_DIALECTS.map((dialect) => (
+            <span key={dialect.id}>{dialect.label}</span>
+          ))}
+        </div>
+      </Modal>
+
+      <Modal
+        open={licenseModelId !== null}
+        title={`${MODEL_CATALOG.find((model) => model.id === licenseModelId)?.name ?? "模型"} 许可证`}
+        description="使用和分享模型文件前，请遵守模型作者的许可条款。"
+        onClose={() => setLicenseModelId(null)}
+        footer={<Button onClick={() => setLicenseModelId(null)}>知道了</Button>}
+      >
+        <div className="model-license-content">
+          <strong>
+            {MODEL_CATALOG.find((model) => model.id === licenseModelId)
+              ?.license ?? "未找到许可证"}
+          </strong>
+          <p>
+            完整许可文件保存在软件目录的 licenses 文件夹中，可长期查看和复制。
+          </p>
+        </div>
+      </Modal>
 
       <Modal
         open={pendingDownload !== null}

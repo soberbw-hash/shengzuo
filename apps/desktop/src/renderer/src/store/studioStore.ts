@@ -5,10 +5,12 @@ import {
   type Emotion,
   type EngineSnapshot,
   type GenerationProject,
+  type GenerationPresetId,
   type GenerationTask,
   type Language,
   type ModelId,
   type OutputFormat,
+  type PronunciationRule,
   type VoiceProfile,
 } from "@ai-voice-studio/shared-types";
 import type { BadgeTone } from "@ai-voice-studio/ui";
@@ -33,6 +35,8 @@ interface StudioState {
   speed: number;
   volume: number;
   format: OutputFormat;
+  presetId: GenerationPresetId;
+  pronunciationRules: PronunciationRule[];
   engine: EngineSnapshot | null;
   engines: Partial<Record<ModelId, EngineSnapshot>>;
   results: AudioResult[];
@@ -44,6 +48,7 @@ interface StudioState {
   setSelectedVoice: (voiceId: string) => void;
   setVoiceProfiles: (voices: VoiceProfile[]) => void;
   addVoiceProfile: (voice: VoiceProfile) => void;
+  updateVoiceProfile: (voice: VoiceProfile) => void;
   removeVoiceProfile: (voiceId: string) => void;
   setText: (text: string) => void;
   setExpression: (expression: string) => void;
@@ -52,6 +57,8 @@ interface StudioState {
   setSpeed: (speed: number) => void;
   setVolume: (volume: number) => void;
   setFormat: (format: OutputFormat) => void;
+  setPresetId: (presetId: GenerationPresetId) => void;
+  setPronunciationRules: (rules: PronunciationRule[]) => void;
   setEngine: (engine: EngineSnapshot) => void;
   setEngines: (engines: EngineSnapshot[]) => void;
   setResults: (results: AudioResult[]) => void;
@@ -82,6 +89,8 @@ export const useStudioStore = create<StudioState>((set) => ({
   speed: 1,
   volume: 100,
   format: "mp3",
+  presetId: "natural",
+  pronunciationRules: [],
   engine: null,
   engines: {},
   results: [],
@@ -98,6 +107,12 @@ export const useStudioStore = create<StudioState>((set) => ({
   setVoiceProfiles: (voiceProfiles) => set({ voiceProfiles }),
   addVoiceProfile: (voice) =>
     set((state) => ({ voiceProfiles: [voice, ...state.voiceProfiles] })),
+  updateVoiceProfile: (voice) =>
+    set((state) => ({
+      voiceProfiles: state.voiceProfiles.map((item) =>
+        item.id === voice.id ? voice : item,
+      ),
+    })),
   removeVoiceProfile: (voiceId) =>
     set((state) => {
       const voiceProfiles = state.voiceProfiles.filter(
@@ -118,12 +133,15 @@ export const useStudioStore = create<StudioState>((set) => ({
   setSpeed: (speed) => set({ speed }),
   setVolume: (volume) => set({ volume }),
   setFormat: (format) => set({ format }),
+  setPresetId: (presetId) => set({ presetId }),
+  setPronunciationRules: (pronunciationRules) => set({ pronunciationRules }),
   setEngine: (engine) =>
     set((state) => ({
       engines: { ...state.engines, [engine.modelId]: engine },
       engine: engine.modelId === state.selectedModel ? engine : state.engine,
       results:
         engine.result &&
+        !engine.result.preview &&
         !state.results.some((item) => item.id === engine.result?.id)
           ? [engine.result, ...state.results]
           : state.results,

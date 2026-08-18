@@ -7,6 +7,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $deliverablesRoot = [IO.Path]::GetFullPath((Join-Path $repositoryRoot 'deliverables'))
+$desktopPackage = Get-Content -LiteralPath (Join-Path $repositoryRoot 'apps\desktop\package.json') -Raw -Encoding utf8 | ConvertFrom-Json
+$version = [string]$desktopPackage.version
 $thinRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot "声作-完整便携版-$ReleaseDate"))
 $targetRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot "声作-完整便携版-含三模型-$ReleaseDate"))
 $stagingRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot ".staging-声作-含三模型-$ReleaseDate"))
@@ -107,8 +109,8 @@ $manifest = [ordered]@{
   [Text.UTF8Encoding]::new($false)
 )
 
-$completeUsage = @'
-声作 1.0.2 · 含三模型完整便携版
+$completeUsage = @"
+声作 $version · 含三模型完整便携版
 ================================
 
 打开方法
@@ -137,7 +139,7 @@ $completeUsage = @'
 设置中的“一键检查修复”可以检查本地后台、模型环境、FFmpeg、文件权限和硬件配置。
 克隆声音时可以点击选择录音，也可以从资源管理器直接把音频拖进窗口。
 设置中可以修改导出文件名规则；导出时会显示最终名称，也可以临时改名。
-'@
+"@
 [IO.File]::WriteAllText(
   (Join-Path $stagingRoot '使用说明.txt'),
   $completeUsage,
@@ -146,7 +148,7 @@ $completeUsage = @'
 
 $completeVersion = @"
 产品：声作
-版本：1.0.2
+版本：$version
 发布日期：$ReleaseDate
 系统：Windows 10/11 x64
 入口：启动.cmd

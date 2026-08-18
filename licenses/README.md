@@ -14,6 +14,7 @@
 
 ## 桌面与构建组件
 
+- 界面内置未修改的 `HarmonyOS_Sans_SC.ttf`，版权归 Huawei Device Co., Ltd. 所有，依据 HarmonyOS Sans Fonts License Agreement 使用；完整条款见 [HarmonyOS-Sans-LICENSE.txt](HarmonyOS-Sans-LICENSE.txt)。
 - Electron、React、Vite、Tailwind CSS：分别遵循其上游开源许可证。
 - Lucide：ISC License。
 - `@breezystack/lamejs` 1.2.7：LGPL-3.0，仅在构建阶段生成测试 MP3，不进入桌面运行时代码；本项目未修改其源码。

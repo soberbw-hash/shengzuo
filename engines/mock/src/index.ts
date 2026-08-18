@@ -4,6 +4,7 @@ import {
 } from "@ai-voice-studio/engine-sdk";
 import {
   ENGINE_STATUS_COPY,
+  type AudioResult,
   type EngineCommand,
   type EngineSnapshot,
   type EngineStatus,
@@ -132,10 +133,18 @@ export class MockEngine {
       canRetry: false,
     };
     this.emit();
-    this.startProgressTimer(7, request.format);
+    this.startProgressTimer(7, request.format, {
+      title: request.title,
+      kind: "single",
+      preview: request.preview,
+    });
   }
 
-  private startProgressTimer(step: number, format: "mp3" = "mp3"): void {
+  private startProgressTimer(
+    step: number,
+    format: "mp3" = "mp3",
+    resultDetails: Pick<AudioResult, "title" | "kind" | "preview"> = {},
+  ): void {
     this.clearTimer();
     this.timer = setInterval(() => {
       const next = Math.min(100, this.snapshot.progress + step);
@@ -188,6 +197,7 @@ export class MockEngine {
               durationSeconds: 2,
               format,
               createdAt: new Date().toISOString(),
+              ...resultDetails,
             },
           };
           this.emit();

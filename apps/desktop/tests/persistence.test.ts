@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -90,7 +90,7 @@ void test("a task interrupted during generation is recovered into the queue", as
     await store.save([task]);
     const recovered = await store.load();
     assert.equal(recovered[0]?.status, "queued");
-    assert.match(recovered[0]?.message ?? "", /恢复到队列/u);
+    assert.match(recovered[0]?.message ?? "", /已经重新排队/u);
     assert.equal(recovered[0]?.progress, 46);
     assert.equal(recovered[0]?.currentSegment, 46);
 
@@ -98,6 +98,28 @@ void test("a task interrupted during generation is recovered into the queue", as
       await readFile(path.join(root, "generation-tasks.json"), "utf8"),
     ) as unknown[];
     assert.equal(persisted.length, 1);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("a damaged project file is quarantined and restored from backup", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-recovery-test-"));
+  try {
+    const store = new ProjectStore(root);
+    const created = await store.save(projectRequest);
+    await store.save({ ...projectRequest, id: created.id, title: "第二版" });
+    const filePath = path.join(root, `${created.id}.json`);
+    await writeFile(filePath, "{broken", "utf8");
+
+    const restored = await store.get(created.id);
+    assert.equal(restored?.title, projectRequest.title);
+    const files = await readdir(root);
+    assert.ok(files.some((name) => name.includes(".corrupt-")));
+    const restoredText = await readFile(filePath, "utf8");
+    assert.doesNotThrow(() => {
+      JSON.parse(restoredText) as unknown;
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

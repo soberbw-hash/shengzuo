@@ -1,5 +1,4 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -8,6 +7,7 @@ import {
   type EnqueueTaskRequest,
   type GenerationTask,
 } from "@ai-voice-studio/shared-types";
+import { readResilientJson, writeResilientJson } from "./resilientJsonStore";
 
 export interface StoredGenerationTask extends GenerationTask {
   command: EnqueueTaskRequest;
@@ -41,35 +41,25 @@ export class TaskStore {
 
   async load(): Promise<StoredGenerationTask[]> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    try {
-      const value: unknown = JSON.parse(await readFile(this.filePath, "utf8"));
-      if (!Array.isArray(value)) return [];
-      return value.filter(isStoredTask).map((task) =>
-        task.status === "running"
-          ? {
-              ...task,
-              status: "queued",
-              message: "上次运行中断，已恢复到队列。",
-              updatedAt: new Date().toISOString(),
-            }
-          : task,
-      );
-    } catch {
-      return [];
-    }
+    const value = await readResilientJson(
+      this.filePath,
+      (candidate): candidate is StoredGenerationTask[] =>
+        Array.isArray(candidate) && candidate.every(isStoredTask),
+    );
+    return (value ?? []).map((task) =>
+      task.status === "running"
+        ? {
+            ...task,
+            status: "queued",
+            message: "上次生成被中断，已经重新排队。",
+            updatedAt: new Date().toISOString(),
+          }
+        : task,
+    );
   }
 
   async save(tasks: StoredGenerationTask[]): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    const temporary = `${this.filePath}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(tasks.slice(0, 100), null, 2), {
-      encoding: "utf8",
-      flag: "wx",
-    });
-    try {
-      await rename(temporary, this.filePath);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await writeResilientJson(this.filePath, tasks.slice(0, 100));
   }
 }

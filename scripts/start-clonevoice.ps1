@@ -228,11 +228,21 @@ $sourceDesktopReady =
   (Test-Path -LiteralPath $sourceElectron -PathType Leaf) -and
   (Test-Path -LiteralPath $sourceMain -PathType Leaf) -and
   (Test-Path -LiteralPath $sourceRenderer -PathType Leaf)
+$sourceBuildIsNewer =
+  $sourceDesktopReady -and
+  (
+    -not $packagedReady -or
+    (Get-Item -LiteralPath $sourceRenderer).LastWriteTimeUtc -gt
+    (Get-Item -LiteralPath $packagedExe).LastWriteTimeUtc
+  )
 $previewReady = Test-PreviewReady
 $runtime = Get-PnpmRuntime
 
 if ($CheckOnly) {
-  $recommendedMode = if (-not $PreviewOnly -and -not $SourceOnly -and $packagedReady) {
+  $recommendedMode = if (-not $PreviewOnly -and $sourceBuildIsNewer) {
+    '打开刚构建的源码桌面程序'
+  }
+  elseif (-not $PreviewOnly -and -not $SourceOnly -and $packagedReady) {
     '优先打开打包版；若启动受限，则使用源码内的真实桌面程序'
   }
   elseif (-not $PreviewOnly -and $sourceDesktopReady) {
@@ -259,6 +269,10 @@ if ($CheckOnly) {
   }
 
   exit 1
+}
+
+if (-not $PreviewOnly -and $sourceBuildIsNewer -and (Start-SourceDesktopApp)) {
+  exit 0
 }
 
 if (-not $PreviewOnly -and -not $SourceOnly -and $packagedReady -and (Start-PackagedApp)) {

@@ -36,7 +36,7 @@ void test("export naming rule rejects unknown placeholders", async () => {
     const store = new ExportPreferencesStore(path.join(root, "settings.json"));
     await assert.rejects(
       store.updateNamingTemplate("{项目}_{不存在}"),
-      /命名规则无效/u,
+      /文件命名规则无法使用/u,
     );
   } finally {
     await rm(root, { recursive: true, force: true });
