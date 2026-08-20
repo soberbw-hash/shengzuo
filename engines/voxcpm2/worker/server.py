@@ -17,7 +17,12 @@ WORKER_ROOT = Path(__file__).resolve().parent
 if str(WORKER_ROOT) not in sys.path:
     sys.path.insert(0, str(WORKER_ROOT))
 
-from prompting import prepare_target_text
+from prompting import (
+    DIALECT_NAMES,
+    build_voice_design_text,
+    prepare_target_text,
+    reference_text_is_plausible,
+)
 from pacing import pace_correction, seconds_per_unit, split_for_stable_pacing
 
 MAX_REQUEST_BYTES = 128 * 1024
@@ -36,6 +41,22 @@ def is_within(candidate: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def public_error_code(error: Exception) -> str:
+    raw = str(error).strip()
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,79}", raw):
+        return raw
+    lowered = raw.lower()
+    if "out of memory" in lowered or "memory allocation" in lowered:
+        return "GPU_MEMORY_LOW"
+    if any(token in lowered for token in ("cuda", "cudnn", "cublas", "device-side")):
+        return "GPU_RUNTIME_ERROR"
+    if isinstance(error, subprocess.CalledProcessError) or any(
+        token in lowered for token in ("ffmpeg", "audio conversion", "encoding")
+    ):
+        return "AUDIO_CONVERSION_FAILED"
+    return "WORKER_ERROR"
 
 
 class WorkerState:
@@ -92,9 +113,24 @@ class WorkerState:
             if speed < 0.5 or speed > 2.0 or volume < 0 or volume > 150:
                 raise RuntimeError("INVALID_AUDIO_SETTINGS")
 
-            reference_audio = Path(str(payload.get("referenceAudio", ""))).resolve()
-            if not reference_audio.is_file() or not is_within(reference_audio, self.voice_root):
-                raise RuntimeError("VOICE_SAMPLE_NOT_FOUND")
+            vox_mode = str(payload.get("voxMode", "controlled"))
+            if vox_mode not in {"controlled", "ultimate", "design"}:
+                raise RuntimeError("INVALID_VOX_MODE")
+            voice_description = str(payload.get("voiceDescription", "")).strip()
+            if len(voice_description) > 240:
+                raise RuntimeError("INVALID_VOICE_DESCRIPTION")
+
+            reference_audio: Path | None = None
+            if vox_mode != "design":
+                reference_audio = Path(
+                    str(payload.get("referenceAudio", ""))
+                ).resolve()
+                if not reference_audio.is_file() or not is_within(
+                    reference_audio, self.voice_root
+                ):
+                    raise RuntimeError("VOICE_SAMPLE_NOT_FOUND")
+            elif len(voice_description) < 4:
+                raise RuntimeError("VOICE_DESCRIPTION_REQUIRED")
             reference_text = str(payload.get("referenceText", "")).strip()
             if len(reference_text) > 1_000:
                 raise RuntimeError("INVALID_REFERENCE_TEXT")
@@ -112,20 +148,26 @@ class WorkerState:
             ffmpeg = imageio_ffmpeg.get_ffmpeg_exe()
             with tempfile.TemporaryDirectory(dir=self.output_root) as temporary_name:
                 temporary = Path(temporary_name)
-                normalized_reference = temporary / "reference.wav"
+                normalized_reference: Path | None = None
                 raw_output = temporary / "generated.wav"
-                subprocess.run(
-                    [
-                        ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-                        "-i", str(reference_audio), "-ac", "1", "-ar", "48000",
-                        str(normalized_reference),
-                    ],
-                    check=True,
-                    capture_output=True,
-                )
-                reference_info = sf.info(normalized_reference)
-                if reference_info.duration < 3 or reference_info.duration > 60:
-                    raise RuntimeError("VOICE_SAMPLE_DURATION")
+                if reference_audio is not None:
+                    normalized_reference = temporary / "reference.wav"
+                    subprocess.run(
+                        [
+                            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
+                            "-i", str(reference_audio), "-ac", "1", "-ar", "48000",
+                            str(normalized_reference),
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+                    reference_info = sf.info(normalized_reference)
+                    if reference_info.duration < 3 or reference_info.duration > 60:
+                        raise RuntimeError("VOICE_SAMPLE_DURATION")
+                    if vox_mode == "ultimate" and not reference_text_is_plausible(
+                        reference_text, reference_info.duration
+                    ):
+                        raise RuntimeError("REFERENCE_TEXT_MISMATCH")
 
                 sample_rate = int(self.model.tts_model.sample_rate)
                 generated_chunks: list[np.ndarray] = []
@@ -134,18 +176,40 @@ class WorkerState:
                 pace_corrections = 0
 
                 for index, chunk in enumerate(text_chunks):
-                    target_text, has_control_instruction = prepare_target_text(
-                        chunk, language, expression
-                    )
+                    if vox_mode == "design":
+                        dialect = DIALECT_NAMES.get(language)
+                        design_description = ", ".join(
+                            item for item in (dialect, voice_description) if item
+                        )
+                        try:
+                            target_text = build_voice_design_text(
+                                chunk, design_description
+                            )
+                        except ValueError as error:
+                            raise RuntimeError(str(error)) from error
+                    elif vox_mode == "ultimate":
+                        target_text = chunk
+                    else:
+                        target_text, _ = prepare_target_text(
+                            chunk, language, expression
+                        )
                     generation_options: dict[str, Any] = {
                         "text": target_text,
-                        "reference_wav_path": str(normalized_reference),
+                        # 声作已在主进程完成文本清理。Vox 的可选 normalize 会在
+                        # 首次生成时联网拉取 WeText，离线环境中反而会导致整次失败。
                         "normalize": False,
                         "denoise": False,
+                        "cfg_value": 2.0,
+                        "inference_timesteps": 10,
+                        "retry_badcase": True,
+                        "retry_badcase_max_times": 3,
                     }
-                    # VoxCPM2 官方模式中，续写克隆会忽略控制指令。方言或自定义
-                    # 风格启用时只使用 reference_wav_path，避免控制词被念出或失效。
-                    if reference_text and not has_control_instruction:
+                    if normalized_reference is not None:
+                        generation_options["reference_wav_path"] = str(
+                            normalized_reference
+                        )
+                    # 极致克隆是显式模式：只有逐字稿经过长度校验后才进入续写路径。
+                    if vox_mode == "ultimate" and normalized_reference is not None:
                         generation_options["prompt_wav_path"] = str(normalized_reference)
                         generation_options["prompt_text"] = reference_text
 
@@ -204,6 +268,14 @@ class WorkerState:
                             dtype=np.float32,
                         ).reshape(-1)
                         pace_corrections += 1
+                    if chunk_pace is not None:
+                        effective_pace = chunk_pace / correction
+                        bounded_pace = max(0.14, min(0.35, effective_pace))
+                        baseline_pace = (
+                            bounded_pace
+                            if baseline_pace is None
+                            else baseline_pace * 0.82 + bounded_pace * 0.18
+                        )
                     fade_samples = min(int(sample_rate * 0.012), waveform.size // 2)
                     if fade_samples > 1:
                         fade = np.sin(
@@ -315,8 +387,7 @@ class VoiceWorkerHandler(BaseHTTPRequestHandler):
             else:
                 self.send_json(404, {"ok": False, "code": "NOT_FOUND"})
         except Exception as error:
-            code = str(error).split(":", maxsplit=1)[0]
-            self.send_json(500, {"ok": False, "code": code[:80] or "WORKER_ERROR"})
+            self.send_json(500, {"ok": False, "code": public_error_code(error)})
 
     def handle_handshake(self) -> None:
         if not self.trusted_loopback_request() or self.server.boot_token is None:

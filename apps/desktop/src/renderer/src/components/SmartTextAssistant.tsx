@@ -1,91 +1,47 @@
-import {
-  BookOpenText,
-  Check,
-  RotateCcw,
-  Sparkles,
-  WandSparkles,
-} from "lucide-react";
+import { Check, Sparkles, WandSparkles } from "lucide-react";
 import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
   countMeaningfulCharacters,
-  type Emotion,
+  getModelGenerationCapabilities,
   type Language,
   type ModelId,
-  type PronunciationRule,
-  type SmartTextAction,
+  type SmartPerformanceSegment,
   type SmartTextResult,
 } from "@ai-voice-studio/shared-types";
-import { Button, Modal, TextAreaField, TextField } from "@ai-voice-studio/ui";
+import { Button, Modal } from "@ai-voice-studio/ui";
 
-import { desktopApi } from "../lib/desktopApi";
 import { useSmartApiAvailability } from "../hooks/useSmartApiAvailability";
+import { desktopApi } from "../lib/desktopApi";
+import { getUserErrorMessage } from "../lib/errorMessage";
+import { performancePauseLabel } from "../lib/performanceAnnotations";
 import { useStudioStore } from "../store/studioStore";
 
-const actions: readonly {
-  id: SmartTextAction;
-  label: string;
-  description: string;
-}[] = [
-  {
-    id: "spoken",
-    label: "自然口语",
-    description: "把书面句改成适合朗读的口语",
-  },
-  {
-    id: "pause",
-    label: "整理停顿",
-    description: "调整标点和断句，不改核心内容",
-  },
-  {
-    id: "concise",
-    label: "精简文稿",
-    description: "删除重复、赘词和绕口句",
-  },
-  {
-    id: "pronunciation",
-    label: "检查发音",
-    description: "找出人名、品牌和英文缩写的读法",
-  },
-  {
-    id: "translate",
-    label: "翻译配音",
-    description: "翻译成指定语言，并改得适合朗读",
-  },
-  {
-    id: "custom",
-    label: "自定义",
-    description: "只按你填写的要求处理",
-  },
-];
-
-interface SourceRange {
-  start: number;
-  end: number;
-}
+const modelApplicationCopy = (modelId: ModelId, language: Language): string => {
+  const capabilities = getModelGenerationCapabilities(modelId, language);
+  if (capabilities.emotion) {
+    return "当前模型会逐段应用情绪和停顿，避免叠加表达提示造成失真。";
+  }
+  if (capabilities.expression) {
+    return "当前模型会逐段应用表达和停顿；情绪名称用于说明。";
+  }
+  return "当前模型只应用停顿；情绪名称用于说明，不会作为文字朗读。";
+};
 
 export const SmartTextAssistant = ({
   text,
-  targetId,
   modelId,
   language,
-  pronunciationRules,
-  onChange,
-  onExpressionChange,
-  onEmotionChange,
-  onPronunciationRulesChange,
+  segments,
+  onSegmentsChange,
   compact = false,
 }: {
   text: string;
-  targetId?: string;
   modelId: ModelId;
   language: Language;
-  pronunciationRules?: PronunciationRule[];
-  onChange: (text: string) => void;
-  onExpressionChange?: (expression: string) => void;
-  onEmotionChange?: (emotion: Emotion) => void;
-  onPronunciationRulesChange?: (rules: PronunciationRule[]) => void;
+  segments: SmartPerformanceSegment[];
+  onSegmentsChange: (segments: SmartPerformanceSegment[]) => void;
   compact?: boolean;
 }) => {
   const navigate = useNavigate();
@@ -93,46 +49,24 @@ export const SmartTextAssistant = ({
   const { status: apiStatus, configured } = useSmartApiAvailability();
   const pushToast = useStudioStore((state) => state.pushToast);
   const [open, setOpen] = useState(false);
-  const [sourceText, setSourceText] = useState("");
-  const [sourceRange, setSourceRange] = useState<SourceRange | null>(null);
-  const [action, setAction] = useState<SmartTextAction>("spoken");
-  const [customInstruction, setCustomInstruction] = useState("");
-  const [targetLanguage, setTargetLanguage] = useState("英语");
   const [result, setResult] = useState<SmartTextResult | null>(null);
-  const [revisedText, setRevisedText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [undoText, setUndoText] = useState<string | null>(null);
-  const [suggestionsApplied, setSuggestionsApplied] = useState(false);
+  const characterCount = countMeaningfulCharacters(text);
 
   const openPanel = () => {
-    const input = targetId
-      ? document.querySelector<HTMLTextAreaElement>(`#${targetId}`)
-      : null;
-    const hasSelection =
-      input &&
-      input.selectionEnd > input.selectionStart &&
-      input.value === text;
-    const range = hasSelection
-      ? { start: input.selectionStart, end: input.selectionEnd }
-      : null;
-    const source = range ? text.slice(range.start, range.end) : text;
-    if (!source.trim()) {
-      pushToast({ title: "先输入需要处理的文字", tone: "warning" });
+    if (!text.trim()) {
+      pushToast({ title: "先输入已经定稿的文字", tone: "warning" });
       return;
     }
-    if (countMeaningfulCharacters(source) > 20_000) {
+    if (characterCount > 20_000) {
       pushToast({
-        title: "一次最多处理 20,000 个字",
-        description: "请在文字框中选中一部分后再处理。",
+        title: "一次最多分析 20,000 个字",
+        description: "请缩短文稿后再试。",
         tone: "warning",
       });
       return;
     }
-    setSourceText(source);
-    setSourceRange(range);
     setResult(null);
-    setRevisedText("");
-    setSuggestionsApplied(false);
     setOpen(true);
   };
 
@@ -140,22 +74,18 @@ export const SmartTextAssistant = ({
     if (busy) return;
     setBusy(true);
     try {
-      const next = await desktopApi.smart.processText({
-        action,
-        text: sourceText,
-        customInstruction:
-          action === "custom" ? customInstruction.trim() : undefined,
-        targetLanguage:
-          action === "translate" ? targetLanguage.trim() : undefined,
-        modelId,
-        language,
-      });
-      setResult(next);
-      setRevisedText(next.revisedText);
+      setResult(
+        await desktopApi.smart.processText({
+          action: "performance",
+          text,
+          modelId,
+          language,
+        }),
+      );
     } catch (error) {
       pushToast({
         title: "智能处理没有完成",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -163,83 +93,16 @@ export const SmartTextAssistant = ({
     }
   };
 
-  const applyText = () => {
-    if (!result || !revisedText.trim()) return;
-    if (
-      sourceRange &&
-      text.slice(sourceRange.start, sourceRange.end) === sourceText
-    ) {
-      setUndoText(text);
-      onChange(
-        `${text.slice(0, sourceRange.start)}${revisedText.trim()}${text.slice(sourceRange.end)}`,
-      );
-    } else if (!sourceRange && text === sourceText) {
-      setUndoText(text);
-      onChange(revisedText.trim());
-    } else {
-      pushToast({
-        title: "输入框里的文字已经变了",
-        description: "请关闭窗口，再重新选择要处理的文字。",
-        tone: "warning",
-      });
-      return;
-    }
+  const apply = () => {
+    if (!result) return;
+    onSegmentsChange(result.segments);
     setOpen(false);
     pushToast({
-      title: sourceRange ? "已替换选中文字" : "已替换全文",
-      description: "如果不满意，可以点击旁边的撤销按钮。",
+      title: `已应用 ${result.segments.length} 段配音标注`,
+      description: "已在原文旁显示彩色括号；括号只作提示，不会朗读。",
       tone: "success",
     });
   };
-
-  const applySuggestions = () => {
-    if (!result || suggestionsApplied) return;
-    if (result.expressionSuggestion && onExpressionChange) {
-      onExpressionChange(result.expressionSuggestion);
-    }
-    if (result.emotionSuggestion && onEmotionChange) {
-      onEmotionChange(result.emotionSuggestion);
-    }
-    setSuggestionsApplied(true);
-  };
-
-  const addPronunciations = () => {
-    if (
-      !result?.pronunciations.length ||
-      !pronunciationRules ||
-      !onPronunciationRulesChange
-    ) {
-      return;
-    }
-    const existing = new Set(
-      pronunciationRules.map((rule) => rule.source.trim().toLocaleLowerCase()),
-    );
-    const additions = result.pronunciations
-      .filter((item) => !existing.has(item.source.trim().toLocaleLowerCase()))
-      .slice(0, Math.max(0, 50 - pronunciationRules.length))
-      .map((item) => ({
-        id: crypto.randomUUID(),
-        source: item.source,
-        replacement: item.replacement,
-        enabled: true,
-      }));
-    if (!additions.length) {
-      pushToast({ title: "这些词已经在发音词典里", tone: "info" });
-      return;
-    }
-    onPronunciationRulesChange([...pronunciationRules, ...additions]);
-    pushToast({
-      title: `已加入 ${additions.length} 条发音规则`,
-      tone: "success",
-    });
-  };
-
-  const sourceCharacterCount = countMeaningfulCharacters(sourceText);
-  const resultCharacterCount = countMeaningfulCharacters(revisedText);
-  const selectedAction = actions.find((item) => item.id === action);
-  const needsExtra =
-    (action === "custom" && !customInstruction.trim()) ||
-    (action === "translate" && !targetLanguage.trim());
 
   return (
     <>
@@ -262,15 +125,30 @@ export const SmartTextAssistant = ({
           <span className="smart-text-tooltip" id={tooltipId} role="tooltip">
             {apiStatus === "configured" ? (
               <>
-                <strong>处理和修改文稿</strong>
+                <strong>分析整篇定稿</strong>
                 <span>
-                  润色口语、整理停顿、精简文字、检查发音或翻译。结果会先给你确认。
+                  不改原文，只标出分段、停顿和情绪表达；结果会先给你确认。
                 </span>
               </>
             ) : apiStatus === "loading" ? (
               <>
                 <strong>正在读取 API配置</strong>
                 <span>读取完成后会自动显示是否可以使用。</span>
+              </>
+            ) : apiStatus === "key-error" ? (
+              <>
+                <strong>保存的 API Key 无法读取</strong>
+                <span>到设置里重新输入 API Key，再点“保存并验证”。</span>
+              </>
+            ) : apiStatus === "missing-key" ? (
+              <>
+                <strong>还需填写 API Key</strong>
+                <span>到设置里输入 API Key，再点“保存并验证”。</span>
+              </>
+            ) : apiStatus === "error" ? (
+              <>
+                <strong>API配置读取失败</strong>
+                <span>请重开软件；如果仍然失败，到设置里重新保存并验证。</span>
               </>
             ) : (
               <>
@@ -280,47 +158,50 @@ export const SmartTextAssistant = ({
             )}
           </span>
         </span>
-        {undoText !== null ? (
-          <button
-            type="button"
-            className="smart-text-undo"
-            title="撤销上一次智能修改"
-            aria-label="撤销智能修改"
-            onClick={() => {
-              onChange(undoText);
-              setUndoText(null);
-            }}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
+        {segments.length ? (
+          <span className="smart-text-applied" title="点击智能处理可以重新分析">
+            已标注 {segments.length} 段
+          </span>
         ) : null}
       </span>
 
       <Modal
         open={open}
         size="xl"
-        title="智能处理文稿"
-        description={
-          sourceRange
-            ? `只处理选中的 ${sourceCharacterCount.toLocaleString()} 个字，确认后替换这部分。`
-            : `处理全文 ${sourceCharacterCount.toLocaleString()} 个字，确认后才会替换原文。`
-        }
+        title="智能处理停顿与情绪"
+        description={`读取全文 ${characterCount.toLocaleString()} 个字；不修改原稿，只生成不朗读的配音标注。`}
         onClose={() => setOpen(false)}
         footer={
           configured && result ? (
             <>
               <Button variant="secondary" onClick={() => setOpen(false)}>
-                保留原文
+                取消
               </Button>
-              <Button onClick={applyText}>
+              <Button onClick={apply}>
                 <Check className="h-4 w-4" />
-                {sourceRange ? "替换选中文字" : "替换全文"}
+                使用这些标注
               </Button>
             </>
           ) : undefined
         }
       >
-        {!configured ? (
+        {apiStatus === "key-error" ? (
+          <div className="smart-text-unconfigured">
+            <span>
+              <WandSparkles className="h-5 w-5" />
+            </span>
+            <strong>保存的 API Key 无法读取</strong>
+            <p>到设置里重新输入 API Key，再点“保存并验证”。</p>
+          </div>
+        ) : apiStatus === "error" ? (
+          <div className="smart-text-unconfigured">
+            <span>
+              <WandSparkles className="h-5 w-5" />
+            </span>
+            <strong>API配置读取失败</strong>
+            <p>请重开软件，或在设置里重新保存并验证。</p>
+          </div>
+        ) : !configured ? (
           <div className="smart-text-unconfigured">
             <span>
               <WandSparkles className="h-5 w-5" />
@@ -337,129 +218,44 @@ export const SmartTextAssistant = ({
               去设置
             </Button>
           </div>
+        ) : !result ? (
+          <div className="smart-text-ready">
+            <Sparkles className="h-5 w-5" />
+            <strong>只分析，不改稿</strong>
+            <p>AI 会按语意分段，并标记停顿、情绪和克制的表达要求。</p>
+            <small>{modelApplicationCopy(modelId, language)}</small>
+            <Button disabled={busy} onClick={() => void process()}>
+              <WandSparkles className="h-4 w-4" />
+              {busy ? "正在分析整篇文稿…" : "开始标注"}
+            </Button>
+          </div>
         ) : (
-          <div className="smart-text-workspace">
-            <div className="smart-text-actions" aria-label="智能处理方式">
-              {actions.map((item) => (
-                <button
-                  type="button"
-                  key={item.id}
-                  data-active={action === item.id}
-                  onClick={() => {
-                    setAction(item.id);
-                    setResult(null);
-                  }}
-                >
-                  <strong>{item.label}</strong>
-                  <small>{item.description}</small>
-                </button>
+          <div className="smart-performance-review">
+            <div className="smart-text-summary">
+              <Sparkles className="h-4 w-4" />
+              <div>
+                <strong>原稿未修改</strong>
+                <span>{result.summary}</span>
+                <small>{modelApplicationCopy(modelId, language)}</small>
+              </div>
+            </div>
+            <div className="smart-performance-segments">
+              {result.segments.map((segment, index) => (
+                <article key={`${index}-${segment.text.slice(0, 18)}`}>
+                  <span>{index + 1}</span>
+                  <p>{segment.text}</p>
+                  <div>
+                    <strong>
+                      {performancePauseLabel(segment.pauseAfterMs)}
+                    </strong>
+                    <strong>情绪：{segment.mood}</strong>
+                    {segment.expression ? (
+                      <small>{segment.expression}</small>
+                    ) : null}
+                  </div>
+                </article>
               ))}
             </div>
-            {action === "custom" ? (
-              <TextAreaField
-                label="处理要求"
-                className="smart-text-custom"
-                value={customInstruction}
-                maxLength={500}
-                placeholder="例如：语气更轻松，保留所有产品参数"
-                onChange={(event) => setCustomInstruction(event.target.value)}
-              />
-            ) : null}
-            {action === "translate" ? (
-              <TextField
-                label="翻译成"
-                value={targetLanguage}
-                maxLength={60}
-                placeholder="例如：英语、日语、粤语"
-                onChange={(event) => setTargetLanguage(event.target.value)}
-              />
-            ) : null}
-            {!result ? (
-              <div className="smart-text-ready">
-                <Sparkles className="h-5 w-5" />
-                <strong>{selectedAction?.label}</strong>
-                <p>{selectedAction?.description}</p>
-                <Button
-                  disabled={busy || needsExtra}
-                  onClick={() => void process()}
-                >
-                  <WandSparkles className="h-4 w-4" />
-                  {busy ? "正在处理…" : "开始处理"}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className="smart-text-summary">
-                  <Sparkles className="h-4 w-4" />
-                  <div>
-                    <strong>本次处理：{selectedAction?.label}</strong>
-                    <p>{selectedAction?.description}</p>
-                    <span>具体变化：{result.summary}</span>
-                    <small>
-                      原文 {sourceCharacterCount.toLocaleString()} 字 → 结果{" "}
-                      {resultCharacterCount.toLocaleString()} 字
-                    </small>
-                  </div>
-                </div>
-                <div className="smart-text-compare">
-                  <TextAreaField
-                    label="修改前"
-                    value={sourceText}
-                    readOnly
-                    className="smart-text-compare__field"
-                  />
-                  <TextAreaField
-                    label="处理结果（可以修改）"
-                    value={revisedText}
-                    maxLength={50_000}
-                    className="smart-text-compare__field"
-                    onChange={(event) => setRevisedText(event.target.value)}
-                  />
-                </div>
-                {result.expressionSuggestion || result.emotionSuggestion ? (
-                  <div className="smart-text-suggestions">
-                    <span>配音建议</span>
-                    {result.emotionSuggestion ? (
-                      <strong>情绪：{result.emotionSuggestion}</strong>
-                    ) : null}
-                    {result.expressionSuggestion ? (
-                      <strong>表达：{result.expressionSuggestion}</strong>
-                    ) : null}
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={suggestionsApplied}
-                      onClick={applySuggestions}
-                    >
-                      {suggestionsApplied ? "已应用" : "应用建议"}
-                    </Button>
-                  </div>
-                ) : null}
-                {result.pronunciations.length ? (
-                  <div className="smart-text-pronunciations">
-                    <span>
-                      <BookOpenText className="h-4 w-4" /> 发音建议
-                    </span>
-                    <div>
-                      {result.pronunciations.map((item) => (
-                        <strong key={`${item.source}-${item.replacement}`}>
-                          {item.source} → {item.replacement}
-                        </strong>
-                      ))}
-                    </div>
-                    {onPronunciationRulesChange ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={addPronunciations}
-                      >
-                        加入发音词典
-                      </Button>
-                    ) : null}
-                  </div>
-                ) : null}
-              </>
-            )}
           </div>
         )}
       </Modal>

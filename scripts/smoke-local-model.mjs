@@ -12,6 +12,11 @@ const smokeText =
   "这是声作的真实模型配音测试。声音清楚、自然，并且只在本机生成。";
 const smokeExpression = process.env.SHENGZUO_SMOKE_EXPRESSION ?? "自然、清晰";
 const requestedVoiceName = process.env.SHENGZUO_SMOKE_VOICE_NAME?.trim();
+const voxMode = process.env.SHENGZUO_SMOKE_VOX_MODE?.trim() ?? "controlled";
+const voiceDescription =
+  process.env.SHENGZUO_SMOKE_VOICE_DESCRIPTION?.trim() ??
+  "30岁左右的沉稳男声，音色温暖，吐字清楚，语速自然";
+const expectedErrorCode = process.env.SHENGZUO_SMOKE_EXPECT_CODE?.trim();
 const configs = {
   voxcpm2: {
     folder: "voxcpm2",
@@ -60,23 +65,29 @@ const getPort = () =>
     });
   });
 
-const voiceRoot = path.join(userData, "voices");
-const voiceDirectories = await readdir(voiceRoot, { withFileTypes: true });
+const isVoxVoiceDesign = modelId === "voxcpm2" && voxMode === "design";
+const voiceRoot =
+  process.env.SHENGZUO_VOICE_LIBRARY?.trim() || path.join(userData, "voices");
 const voiceProfiles = [];
-for (const entry of voiceDirectories) {
-  if (!entry.isDirectory()) continue;
-  const profileRoot = path.join(voiceRoot, entry.name);
-  const profile = JSON.parse(
-    await readFile(path.join(profileRoot, "profile.json"), "utf8"),
-  );
-  voiceProfiles.push({ profileRoot, profile });
+if (!isVoxVoiceDesign) {
+  const voiceDirectories = await readdir(voiceRoot, { withFileTypes: true });
+  for (const entry of voiceDirectories) {
+    if (!entry.isDirectory()) continue;
+    const profileRoot = path.join(voiceRoot, entry.name);
+    const profile = JSON.parse(
+      await readFile(path.join(profileRoot, "profile.json"), "utf8"),
+    );
+    voiceProfiles.push({ profileRoot, profile });
+  }
 }
 const selectedVoice = requestedVoiceName
   ? voiceProfiles.find(({ profile }) => profile.name === requestedVoiceName)
   : voiceProfiles[0];
-if (!selectedVoice) throw new Error("NO_VOICE_PROFILE");
-const { profileRoot, profile } = selectedVoice;
-const referenceAudio = path.join(profileRoot, profile.sampleFile);
+if (!selectedVoice && !isVoxVoiceDesign) throw new Error("NO_VOICE_PROFILE");
+const profile = selectedVoice?.profile;
+const referenceAudio = selectedVoice
+  ? path.join(selectedVoice.profileRoot, selectedVoice.profile.sampleFile)
+  : undefined;
 
 const outputRoot = path.join(workspace, "artifacts", "integration", modelId);
 await mkdir(outputRoot, { recursive: true });
@@ -165,16 +176,31 @@ try {
       speed: 1,
       volume: 100,
       referenceAudio,
-      referenceText: profile.referenceText,
+      referenceText: profile?.referenceText ?? "",
+      voxMode: modelId === "voxcpm2" ? voxMode : undefined,
+      voiceDescription: isVoxVoiceDesign ? voiceDescription : undefined,
     },
     2 * 60 * 60 * 1_000,
   );
   if (!generated.ok) {
-    throw new Error(`GENERATION_FAILED:${generated.code}\n${errorTail}`);
+    if (expectedErrorCode && generated.code === expectedErrorCode) {
+      process.stdout.write(
+        `${JSON.stringify({
+          modelId,
+          language,
+          voxMode: modelId === "voxcpm2" ? voxMode : undefined,
+          ok: true,
+          rejectedAsExpected: generated.code,
+        })}\n`,
+      );
+    } else {
+      throw new Error(`GENERATION_FAILED:${generated.code}\n${errorTail}`);
+    }
+  } else {
+    process.stdout.write(
+      `${JSON.stringify({ modelId, language, voxMode: modelId === "voxcpm2" ? voxMode : undefined, ...generated, output: path.join(outputRoot, generated.fileName) })}\n`,
+    );
   }
-  process.stdout.write(
-    `${JSON.stringify({ modelId, language, ...generated, output: path.join(outputRoot, generated.fileName) })}\n`,
-  );
   await post("/shutdown", handshake.sessionToken, {}, 3_000).catch(
     () => undefined,
   );

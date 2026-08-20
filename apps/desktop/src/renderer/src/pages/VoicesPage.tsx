@@ -2,6 +2,7 @@ import {
   AudioLines,
   Check,
   CheckCircle2,
+  FolderOpen,
   Mic2,
   Pause,
   Pencil,
@@ -12,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -36,6 +38,8 @@ import {
 
 import { PageHeader } from "../components/PageHeader";
 import { desktopApi } from "../lib/desktopApi";
+import { getUserErrorMessage } from "../lib/errorMessage";
+import { createDefaultVoiceName } from "../lib/projectNaming";
 import { useStudioStore } from "../store/studioStore";
 
 export const VoicesPage = () => {
@@ -43,7 +47,7 @@ export const VoicesPage = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [cloneOpen, setCloneOpen] = useState(false);
-  const [voiceName, setVoiceName] = useState("我的声音");
+  const [voiceName, setVoiceName] = useState(createDefaultVoiceName);
   const [sampleName, setSampleName] = useState("");
   const [sampleToken, setSampleToken] = useState("");
   const [samplePreviewUrl, setSamplePreviewUrl] = useState("");
@@ -71,11 +75,40 @@ export const VoicesPage = () => {
   const voicePreviewRef = useRef<HTMLAudioElement>(null);
   const [previewingVoiceId, setPreviewingVoiceId] = useState("");
 
+  const openClone = useCallback(() => {
+    setVoiceName(createDefaultVoiceName());
+    setCloneOpen(true);
+  }, []);
+
+  const openVoicesFolder = async () => {
+    const opened = await desktopApi.voices.openFolder();
+    store.pushToast(
+      opened
+        ? { title: "已打开声音文件夹", tone: "success" }
+        : {
+            title: "声音文件夹没有打开",
+            description: "请在设置中运行一次检查修复后重试。",
+            tone: "warning",
+          },
+    );
+  };
+
   useEffect(() => {
     if (new URLSearchParams(location.search).get("clone") === "1") {
-      setCloneOpen(true);
+      openClone();
     }
-  }, [location.search]);
+  }, [location.search, openClone]);
+
+  useEffect(() => {
+    const refreshVoices = () => {
+      void desktopApi.voices
+        .list()
+        .then((voices) => useStudioStore.getState().setVoiceProfiles(voices))
+        .catch(() => undefined);
+    };
+    window.addEventListener("focus", refreshVoices);
+    return () => window.removeEventListener("focus", refreshVoices);
+  }, []);
 
   const closeClone = () => {
     setCloneOpen(false);
@@ -98,8 +131,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "没有选中录音",
-        description:
-          error instanceof Error ? error.message : "请换一个音频文件。",
+        description: getUserErrorMessage(error, "请换一个音频文件。"),
         tone: "warning",
       });
     } finally {
@@ -118,8 +150,7 @@ export const VoicesPage = () => {
   };
 
   const createVoice = async () => {
-    if (!voiceName.trim() || !sampleToken || !referenceText.trim() || busy)
-      return;
+    if (!voiceName.trim() || !sampleToken || busy) return;
     setBusy(true);
     try {
       const voice = await desktopApi.voices.create({
@@ -134,7 +165,7 @@ export const VoicesPage = () => {
       setSamplePreviewUrl("");
       setSampleQuality(null);
       setReferenceText("");
-      setVoiceName("我的声音");
+      setVoiceName(createDefaultVoiceName());
       closeClone();
       store.pushToast({
         title: "声音已创建",
@@ -144,8 +175,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "声音没有创建成功",
-        description:
-          error instanceof Error ? error.message : "请重新选择录音。",
+        description: getUserErrorMessage(error, "请重新选择录音。"),
         tone: "danger",
       });
     } finally {
@@ -165,7 +195,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "声音没有删除成功",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -204,7 +234,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "声音名称没有修改成功",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -236,8 +266,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "没有选中录音",
-        description:
-          error instanceof Error ? error.message : "请换一个音频文件。",
+        description: getUserErrorMessage(error, "请换一个音频文件。"),
         tone: "warning",
       });
     } finally {
@@ -246,13 +275,7 @@ export const VoicesPage = () => {
   };
 
   const addManagedSample = async () => {
-    if (
-      !sampleVoice ||
-      !managedSampleToken ||
-      !managedReferenceText.trim() ||
-      managedSampleBusy
-    )
-      return;
+    if (!sampleVoice || !managedSampleToken || managedSampleBusy) return;
     setManagedSampleBusy(true);
     try {
       const updated = await desktopApi.voices.addSample({
@@ -274,7 +297,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "参考录音没有添加成功",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -295,7 +318,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "参考录音没有切换成功",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -317,7 +340,7 @@ export const VoicesPage = () => {
     } catch (error) {
       store.pushToast({
         title: "参考录音没有删除成功",
-        description: error instanceof Error ? error.message : "请稍后重试。",
+        description: getUserErrorMessage(error, "请稍后重试。"),
         tone: "danger",
       });
     } finally {
@@ -348,7 +371,7 @@ export const VoicesPage = () => {
   };
 
   return (
-    <div className="page-content">
+    <div className="page-content voices-page">
       <audio
         ref={voicePreviewRef}
         preload="metadata"
@@ -361,25 +384,18 @@ export const VoicesPage = () => {
         title="我的声音"
         description="选择、创建或删除声音。"
         actions={
-          <Button onClick={() => setCloneOpen(true)}>
-            <Plus className="h-4 w-4" />
-            克隆声音
-          </Button>
+          <div className="page-header-actions">
+            <Button variant="secondary" onClick={() => void openVoicesFolder()}>
+              <FolderOpen className="h-4 w-4" />
+              打开声音文件夹
+            </Button>
+            <Button onClick={openClone}>
+              <Plus className="h-4 w-4" />
+              克隆声音
+            </Button>
+          </div>
         }
       />
-
-      <GlassCard tone="soft" padding="lg" className="clone-intro">
-        <span className="clone-intro__icon">
-          <Mic2 className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <strong>准备 3–30 秒清晰人声</strong>
-          <p>录音里只要一个人说话；下面填写录音中实际说的文字。</p>
-        </div>
-        <Button variant="secondary" onClick={() => setCloneOpen(true)}>
-          开始克隆
-        </Button>
-      </GlassCard>
 
       {store.voiceProfiles.length > 0 ? (
         <div className="voice-grid">
@@ -439,7 +455,7 @@ export const VoicesPage = () => {
                       </form>
                     ) : (
                       <>
-                        <h3>{voice.name}</h3>
+                        <h3 title={voice.name}>{voice.name}</h3>
                         <button
                           type="button"
                           className="voice-rename-button"
@@ -451,12 +467,9 @@ export const VoicesPage = () => {
                         </button>
                       </>
                     )}
-                    <StatusBadge tone="success">本地克隆</StatusBadge>
                   </div>
-                  <p>{voice.description}</p>
                   <small>
-                    {voice.model} · {voice.referenceSamples?.length ?? 1}{" "}
-                    段参考录音
+                    {voice.referenceSamples?.length ?? 1} 段参考录音
                   </small>
                 </div>
               </div>
@@ -473,8 +486,8 @@ export const VoicesPage = () => {
                   }}
                 >
                   {store.selectedVoice === voice.id
-                    ? "已选中，去创作"
-                    : "用这个声音创作"}
+                    ? "已选中，去配音"
+                    : "用这个声音配音"}
                 </Button>
                 <Button
                   className="voice-card-preview-action"
@@ -519,7 +532,7 @@ export const VoicesPage = () => {
           <Mic2 className="h-6 w-6" />
           <strong>还没有声音</strong>
           <p>添加一段录音，创建第一个声音。</p>
-          <Button size="sm" onClick={() => setCloneOpen(true)}>
+          <Button size="sm" onClick={openClone}>
             克隆第一个声音
           </Button>
         </GlassCard>
@@ -528,6 +541,7 @@ export const VoicesPage = () => {
       <Modal
         open={cloneOpen}
         title="克隆声音"
+        description="准备一段 3–30 秒的清晰单人录音；录音原文只有完全对应时再填写。"
         onClose={closeClone}
         footer={
           <>
@@ -535,12 +549,7 @@ export const VoicesPage = () => {
               取消
             </Button>
             <Button
-              disabled={
-                !voiceName.trim() ||
-                !sampleToken ||
-                !referenceText.trim() ||
-                busy
-              }
+              disabled={!voiceName.trim() || !sampleToken || busy}
               onClick={() => void createVoice()}
             >
               <Mic2 className="h-4 w-4" />
@@ -589,7 +598,9 @@ export const VoicesPage = () => {
               )}
             </span>
             <div className="min-w-0 flex-1">
-              <strong>{sampleName || "选择一段人声录音"}</strong>
+              <strong title={sampleName || "选择一段人声录音"}>
+                {sampleName || "选择一段人声录音"}
+              </strong>
               <p>点击选择或把音频拖到这里；建议 3–30 秒。</p>
             </div>
             <button
@@ -614,13 +625,16 @@ export const VoicesPage = () => {
             onChange={(event) => setVoiceName(event.target.value)}
           />
           <TextAreaField
-            label="录音里说的原文"
+            label="录音原文（可选）"
             hint={`${referenceText.length} / 1,000`}
             value={referenceText}
             maxLength={1_000}
-            placeholder="请填写录音里实际说的文字"
+            placeholder="只有能完整、准确对应录音时再填写"
             onChange={(event) => setReferenceText(event.target.value)}
           />
+          <p className="field-footnote">
+            留空也能克隆。填写准确原文后，才可以使用 VoxCPM2 的极致克隆。
+          </p>
           {sampleQuality ? (
             <div className="voice-quality-checks" aria-label="录音质量检查">
               {sampleQuality.checks.map((check) => (
@@ -675,7 +689,6 @@ export const VoicesPage = () => {
             <Button
               disabled={
                 !managedSampleToken ||
-                !managedReferenceText.trim() ||
                 managedSampleBusy ||
                 (sampleVoice?.referenceSamples?.length ?? 1) >= 5
               }
@@ -694,8 +707,8 @@ export const VoicesPage = () => {
                 <span className="voice-sample-list__icon">
                   <AudioLines className="h-4 w-4" />
                 </span>
-                <span>
-                  <strong>{sample.name}</strong>
+                <span className="min-w-0">
+                  <strong title={sample.name}>{sample.name}</strong>
                   <small>{sample.active ? "当前使用" : "备用录音"}</small>
                 </span>
                 {sample.active ? (
@@ -768,7 +781,9 @@ export const VoicesPage = () => {
                   )}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <strong>{managedSampleName || "添加另一段参考录音"}</strong>
+                  <strong title={managedSampleName || "添加另一段参考录音"}>
+                    {managedSampleName || "添加另一段参考录音"}
+                  </strong>
                   <p>点击选择或直接拖入音频。</p>
                 </div>
                 <button
@@ -793,11 +808,11 @@ export const VoicesPage = () => {
                 </div>
               ) : null}
               <TextAreaField
-                label="这段录音里说的原文"
+                label="录音原文（可选）"
                 hint={`${managedReferenceText.length} / 1,000`}
                 value={managedReferenceText}
                 maxLength={1_000}
-                placeholder="请填写录音里实际说的文字"
+                placeholder="只有能完整、准确对应录音时再填写"
                 onChange={(event) =>
                   setManagedReferenceText(event.target.value)
                 }

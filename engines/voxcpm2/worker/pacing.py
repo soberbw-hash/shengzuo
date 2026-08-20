@@ -84,4 +84,6 @@ def pace_correction(
     minimum_seconds_per_unit = baseline_seconds_per_unit * allowed_fast_ratio
     if current_seconds_per_unit >= minimum_seconds_per_unit:
         return 1.0
-    return max(0.75, min(1.0, current_seconds_per_unit / minimum_seconds_per_unit))
+    # Large per-chunk tempo jumps sound less natural than a slightly fast phrase.
+    # Keep automatic correction gentle; severe outliers are retried by the worker.
+    return max(0.88, min(1.0, current_seconds_per_unit / minimum_seconds_per_unit))

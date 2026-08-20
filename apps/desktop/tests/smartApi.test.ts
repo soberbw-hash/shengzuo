@@ -33,6 +33,7 @@ void test("smart API settings encrypt the key and never return it to renderer", 
       baseUrl: "https://api.example.com/v1",
       model: "voice-editor",
       hasApiKey: true,
+      apiKeyStatus: "ready",
     });
     assert.equal((await store.getCredentials()).apiKey, "private-test-key");
     assert.equal(
@@ -44,7 +45,36 @@ void test("smart API settings encrypt the key and never return it to renderer", 
   }
 });
 
-void test("smart text result keeps only controls supported by the local model", async () => {
+void test("an unreadable saved API key is reported instead of pretending to be ready", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-smart-key-"));
+  const filePath = path.join(root, "smart-api.json");
+  try {
+    const store = new SmartApiStore(filePath, protector);
+    await store.update({
+      enabled: true,
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      apiKey: "private-test-key",
+    });
+    const unreadableStore = new SmartApiStore(filePath, {
+      ...protector,
+      unprotect: () => {
+        throw new Error("wrong Windows encryption context");
+      },
+    });
+    assert.deepEqual(await unreadableStore.getConfig(), {
+      enabled: true,
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      hasApiKey: false,
+      apiKeyStatus: "unreadable",
+    });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("smart performance markers preserve the script and filter model controls", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-smart-text-"));
   try {
     const store = new SmartApiStore(path.join(root, "config.json"), protector);
@@ -73,11 +103,15 @@ void test("smart text result keeps only controls supported by the local model", 
               {
                 message: {
                   content: JSON.stringify({
-                    revisedText: "大家好，今天开始测试。",
-                    summary: "整理了停顿。",
-                    pronunciations: [{ source: "AI", replacement: "A I" }],
-                    expressionSuggestion: "自然清晰",
-                    emotionSuggestion: "温暖",
+                    summary: "原稿未修改，整理了停顿和表演提示。",
+                    annotations: [
+                      {
+                        id: "S001",
+                        pauseAfterMs: 260,
+                        mood: "温暖",
+                        expression: "语气温和自然，速度平缓",
+                      },
+                    ],
                   }),
                 },
               },
@@ -91,26 +125,139 @@ void test("smart text result keeps only controls supported by the local model", 
       );
     });
     const indexResult = await service.processText({
-      action: "spoken",
+      action: "performance",
       text: "大家好今天开始测试",
       modelId: "indextts2-5",
       language: "zh",
     });
-    assert.equal(indexResult.emotionSuggestion, "温暖");
-    assert.equal(indexResult.expressionSuggestion, "自然清晰");
-    assert.deepEqual(indexResult.pronunciations, [
-      { source: "AI", replacement: "A I" },
-    ]);
+    assert.equal(indexResult.segments[0]?.text, "大家好今天开始测试");
+    assert.equal(indexResult.segments[0]?.mood, "温暖");
+    assert.equal(indexResult.segments[0]?.emotion, "温暖");
+    assert.equal(indexResult.segments[0]?.expression, undefined);
     const cosyResult = await service.processText({
-      action: "spoken",
+      action: "performance",
       text: "大家好今天开始测试",
       modelId: "fun-cosyvoice3-0.5b",
       language: "zh",
     });
-    assert.equal(cosyResult.emotionSuggestion, undefined);
-    assert.equal(cosyResult.expressionSuggestion, undefined);
+    assert.equal(cosyResult.segments[0]?.emotion, undefined);
+    assert.equal(cosyResult.segments[0]?.expression, "语气温和自然，速度平缓");
     assert.equal(calls[0]?.url, "https://api.example.com/v1/chat/completions");
     assert.equal(calls[0]?.authorization, "Bearer private-test-key");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("DeepSeek requests disable thinking mode for fast, stable JSON work", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-deepseek-api-"));
+  try {
+    const store = new SmartApiStore(path.join(root, "config.json"), protector);
+    await store.update({
+      enabled: true,
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      apiKey: "private-test-key",
+    });
+    let requestBody: Record<string, unknown> | undefined;
+    const service = new SmartApiService(store, (_input, init) => {
+      const body = init?.body;
+      if (typeof body !== "string") {
+        throw new Error("expected a JSON request body");
+      }
+      requestBody = JSON.parse(body) as Record<string, unknown>;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "连接成功" } }],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    });
+    await service.testConnection();
+    assert.deepEqual(requestBody?.thinking, { type: "disabled" });
+    assert.equal(requestBody?.model, "deepseek-v4-flash");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("DeepSeek balance errors are not misreported as missing configuration", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "shengzuo-deepseek-balance-"),
+  );
+  try {
+    const store = new SmartApiStore(path.join(root, "config.json"), protector);
+    await store.update({
+      enabled: true,
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      apiKey: "private-test-key",
+    });
+    const service = new SmartApiService(store, () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ error: { message: "Insufficient Balance" } }),
+          { status: 402, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    await assert.rejects(
+      () => service.testConnection(),
+      /API 账户余额不足，请充值后重试。/u,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("smart performance markers always keep the locally split script", async () => {
+  const root = await mkdtemp(
+    path.join(os.tmpdir(), "shengzuo-smart-integrity-"),
+  );
+  try {
+    const store = new SmartApiStore(path.join(root, "config.json"), protector);
+    await store.update({
+      enabled: true,
+      baseUrl: "https://api.example.com/v1",
+      model: "voice-editor",
+      apiKey: "private-test-key",
+    });
+    const service = new SmartApiService(store, () =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: "错误地改写了原稿。",
+                    segments: [
+                      {
+                        id: "S001",
+                        text: "大家好，今天开始正式测试。",
+                        pauseAfterMs: 260,
+                        mood: "自然",
+                        expression: "自然表达",
+                      },
+                    ],
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    const result = await service.processText({
+      action: "performance",
+      text: "大家好，今天开始测试。",
+      modelId: "indextts2-5",
+      language: "zh",
+    });
+    assert.equal(result.segments[0]?.text, "大家好，今天开始测试。");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

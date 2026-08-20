@@ -5,6 +5,7 @@ import type { AudioResult } from "@ai-voice-studio/shared-types";
 import { Button, GlassCard } from "@ai-voice-studio/ui";
 
 import { desktopApi } from "../lib/desktopApi";
+import { getUserErrorMessage } from "../lib/errorMessage";
 import { exportAudioResult } from "../lib/exportAudio";
 import { useStudioStore } from "../store/studioStore";
 
@@ -23,9 +24,11 @@ const formatTime = (seconds: number): string => {
 export const AudioPlayer = ({
   result,
   onRegenerate,
+  compact = false,
 }: {
   result: AudioResult;
   onRegenerate: () => void;
+  compact?: boolean;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [playing, setPlaying] = useState(false);
@@ -77,7 +80,7 @@ export const AudioPlayer = ({
     } catch (error) {
       pushToast({
         title: "音频没有导出成功",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     }
@@ -95,6 +98,69 @@ export const AudioPlayer = ({
           },
     );
   };
+
+  if (compact) {
+    return (
+      <div className="compact-generation-result" aria-live="polite">
+        <audio ref={audioRef} src={source} preload="metadata" />
+        <button
+          className="player-button"
+          aria-label={playing ? "暂停生成结果" : "播放生成结果"}
+          onClick={() => void toggle()}
+        >
+          {playing ? (
+            <Pause className="h-4 w-4" />
+          ) : (
+            <Play className="ml-0.5 h-4 w-4" />
+          )}
+        </button>
+        <div className="compact-generation-result__body">
+          <div>
+            <strong>{result.preview ? "试听好了" : "配音生成好了"}</strong>
+            <span>
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="compact-audio-progress"
+            aria-label="调整播放进度"
+            onClick={(event) => {
+              const audio = audioRef.current;
+              if (!audio || duration <= 0) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              audio.currentTime =
+                ((event.clientX - rect.left) / rect.width) * duration;
+            }}
+          >
+            <span style={{ width: `${progress}%` }} />
+          </button>
+        </div>
+        <button
+          type="button"
+          className="compact-result-action"
+          title={result.preview ? "重新试听" : "重新生成"}
+          aria-label={result.preview ? "重新试听" : "重新生成"}
+          onClick={onRegenerate}
+        >
+          <RotateCcw className="h-4 w-4" />
+          <span>{result.preview ? "再试听" : "重新生成"}</span>
+        </button>
+        {result.preview ? null : (
+          <button
+            type="button"
+            className="compact-result-action compact-result-action--primary"
+            title="导出音频"
+            aria-label="导出音频"
+            onClick={() => void exportAudio()}
+          >
+            <Download className="h-4 w-4" />
+            <span>导出</span>
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <GlassCard tone="solid" padding="md" className="audio-result-card">

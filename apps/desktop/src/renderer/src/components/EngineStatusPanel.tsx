@@ -10,6 +10,7 @@ import {
 
 import {
   ENGINE_STATUS_COPY,
+  MODEL_CATALOG,
   type EngineSnapshot,
   type ModelId,
 } from "@ai-voice-studio/shared-types";
@@ -51,6 +52,8 @@ export const EngineStatusPanel = ({
 }) => {
   const copy = ENGINE_STATUS_COPY[snapshot.status];
   const Icon = statusIcons[copy.tone];
+  const modelName =
+    MODEL_CATALOG.find((model) => model.id === modelId)?.name ?? "当前模型";
 
   const execute = async () => {
     if (snapshot.status === "not-installed") {
@@ -106,7 +109,7 @@ export const EngineStatusPanel = ({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <strong className="text-[13px] text-[#27364a]">生成引擎</strong>
+            <strong className="text-[13px] text-[#27364a]">{modelName}</strong>
             <StatusBadge tone={copy.tone}>{copy.label}</StatusBadge>
           </div>
           {snapshot.status !== "ready" && snapshot.status !== "success" ? (

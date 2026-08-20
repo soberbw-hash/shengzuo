@@ -3,6 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import {
   copyFile,
+  cp,
   mkdir,
   readFile,
   readdir,
@@ -249,10 +250,12 @@ const publicProfile = (profile: StoredVoiceProfile): VoiceProfile => {
     description: profile.description,
     kind: profile.kind,
     modelId: profile.modelId,
-    model: "三款模型通用",
+    model: "",
     color: profile.color,
     sampleName: active.name,
     hasReferenceText: active.referenceText.trim().length > 0,
+    referenceTextLength: Array.from(active.referenceText.replace(/\s/gu, ""))
+      .length,
     createdAt: profile.createdAt,
     referenceSamples: samples.map((sample) => ({
       id: sample.id,
@@ -267,10 +270,18 @@ const publicProfile = (profile: StoredVoiceProfile): VoiceProfile => {
 export class VoiceStore {
   private readonly pending = new Map<string, PendingSample>();
 
-  constructor(private readonly voicesRoot: string) {}
+  constructor(
+    private readonly voicesRoot: string,
+    private readonly legacyRoots: string[] = [],
+  ) {}
+
+  getRootPath(): string {
+    return this.voicesRoot;
+  }
 
   async list(): Promise<VoiceProfile[]> {
     await mkdir(this.voicesRoot, { recursive: true });
+    await this.importLegacyVoices();
     const entries = await readdir(this.voicesRoot, { withFileTypes: true });
     const profiles = await Promise.all(
       entries
@@ -408,12 +419,10 @@ export class VoiceStore {
       const profile: StoredVoiceProfile = {
         id: voiceId,
         name: request.name.trim(),
-        description: request.referenceText.trim()
-          ? "高保真声音克隆"
-          : "声音克隆（未填写录音文字）",
+        description: "",
         kind: "cloned",
         modelId: "voxcpm2",
-        model: "三款模型通用",
+        model: "",
         color: "#54a8ef",
         sampleName: pending.fileName,
         hasReferenceText: request.referenceText.trim().length > 0,
@@ -571,6 +580,7 @@ export class VoiceStore {
   async getGenerationSource(voiceId: string): Promise<{
     audioPath: string;
     referenceText: string;
+    voiceName: string;
   }> {
     const stored = await this.readStored(voiceId);
     const sample = activeStoredSample(stored);
@@ -581,14 +591,22 @@ export class VoiceStore {
     return {
       audioPath,
       referenceText: sample.referenceText,
+      voiceName: stored.name,
     };
   }
 
   private async readStored(voiceId: string): Promise<StoredVoiceProfile> {
+    return this.readStoredFrom(this.voicesRoot, voiceId);
+  }
+
+  private async readStoredFrom(
+    root: string,
+    voiceId: string,
+  ): Promise<StoredVoiceProfile> {
     if (!/^voice-[a-f0-9-]+$/u.test(voiceId)) {
       throw new Error("找不到这个声音，请刷新后重试。");
     }
-    const profilePath = path.join(this.voicesRoot, voiceId, "profile.json");
+    const profilePath = path.join(root, voiceId, "profile.json");
     const value: unknown = JSON.parse(await readFile(profilePath, "utf8"));
     if (
       typeof value !== "object" ||
@@ -636,6 +654,41 @@ export class VoiceStore {
       throw new Error("当前使用的录音已不存在，请重新选择。");
     }
     return stored;
+  }
+
+  private async importLegacyVoices(): Promise<void> {
+    for (const legacyRoot of this.legacyRoots) {
+      if (
+        path.resolve(legacyRoot) === path.resolve(this.voicesRoot) ||
+        !existsSync(legacyRoot)
+      ) {
+        continue;
+      }
+      const entries = await readdir(legacyRoot, { withFileTypes: true }).catch(
+        () => [],
+      );
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !/^voice-[a-f0-9-]+$/u.test(entry.name)) {
+          continue;
+        }
+        const destination = path.join(this.voicesRoot, entry.name);
+        if (existsSync(destination)) continue;
+        const temporary = `${destination}.importing-${randomUUID()}`;
+        try {
+          await this.readStoredFrom(legacyRoot, entry.name);
+          await cp(path.join(legacyRoot, entry.name), temporary, {
+            recursive: true,
+            errorOnExist: true,
+          });
+          await rename(temporary, destination);
+        } catch {
+          await rm(temporary, { recursive: true, force: true }).catch(
+            () => undefined,
+          );
+          // 跳过损坏或不是声作格式的文件夹，不影响其他声音。
+        }
+      }
+    }
   }
 
   private prunePending(): void {

@@ -18,6 +18,19 @@ artifacts/*userdata*/
 artifacts/**/*.png
 artifacts/**/*.wav
 apps/desktop/public/mock-audio/preview.mp3
+artifacts/visual-regression/baseline/text-layout-report-*.json
 .env
 .env.*
 !.env.example
+
+# Personal voice archives may be copied here for packaging, but never commit them.
+预置声音/*
+!预置声音/放入声音档案说明.txt
+
+# Model weights are downloaded separately and must not enter the source repository.
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf

@@ -5,7 +5,7 @@
 - 单元测试：协议守卫、Mock Engine 状态机、台词解析、TXT 标点/换行拆分、SRT 分块与时间码解析、用户错误映射。
 - 组件/Store 测试：路由状态、项目原子保存、运行中任务重启恢复、生成取消、播放器状态。
 - 构建测试：Renderer、main、preload、工作区依赖内联断言和 Windows unpacked 目录。
-- Electron 自动交互：导入字幕、编辑、删除一句、保存项目、提交队列、停止、恢复数据、导出，以及多人脚本智能整理、结果确认和应用。
+- Electron 自动交互：导入长稿、编辑、删除一句、保存项目、提交队列、停止、恢复数据、导出，以及多人脚本角色提取、结果确认和应用。
 - 视觉回归：固定视口与状态截图保存到 `artifacts/visual-regression/baseline`。
 - 手动验收：真实 Windows 标题栏、缩放、播放、保存对话框和中文路径。
 
@@ -27,9 +27,9 @@
 至少保存：
 
 1. 配音生成
-2. 字幕配音
+2. 长稿配音
 3. 多人对话
-4. 音色库
+4. 我的声音
 5. 模型管理
 6. 设置
 7. 下载中
@@ -49,6 +49,7 @@ pnpm test
 pnpm test:interaction
 pnpm test:audio
 pnpm test:worker-security
+python -m unittest discover -s engines/voxcpm2/tests -p "test_*.py"
 pnpm build
 pnpm package:win
 pnpm visual:capture
@@ -67,15 +68,15 @@ pnpm visual:capture
 
 ## 6. 本轮证据
 
-- 50 个单元/协议测试通过；完整 Electron 点击式交互测试通过。
-- 25 张常规视觉基线和 1 张 150% DPI 基线全部有内容、主容器 opacity 为 1、页面错误为空；其中包含单段创作和多人对话在未配置 API 时的置灰按钮与悬停说明。
+- 97 个 TypeScript 单元/协议测试和 11 个 VoxCPM2 Worker 测试通过；完整 Electron 点击式交互测试通过。
+- 38 张常规视觉基线和 1 张 150% DPI 基线全部有内容、主容器 opacity 为 1、页面错误为空；覆盖 1280×720、1280×800、1440×900、1600×900、1600×960、1840×1024 与 1920×1080，并包含 API 未配置、下载暂停、模型许可、弹窗和错误状态。
 - 测试音频：2 秒、44.1 kHz、mono、128 kbps MP3。
 - HTTP 静态资源：200、`audio/mpeg`。
 - 浏览器导出：有效 MP3 帧同步与非空文件。
 - Worker 安全测试通过：仅环回访问、拒绝 Origin、启动 token 只可使用一次、会话 token 鉴权有效。
 - RTX 4070 上加载到 `cuda:0`，以真实参考音频生成 4.46 秒、24 kHz、mono MP3。
-- Windows unpacked 包构建并检查通过；包内不含本机权重、运行时、声音或生成结果。
-- 2026-08-15 在中文目录中通过最终分享包的真实 CMD 入口启动成功；Renderer 进程带 `--enable-sandbox`，重复启动保持单实例。
-- 2026-08-15 复测确认未签名 `ShengZuo.exe` 可能被端点策略拦截，而便携包的 CMD 入口可以正常启动，因此保留一个 `启动.cmd` 入口。
+- Windows unpacked 包构建并检查通过；不含 source map、引擎测试、Python 缓存、构建机路径、模型权重、声音或生成结果，并随附本体许可与隐私说明。
+- 2026-08-21 从最终 `ShengZuo-1.0.0-Windows-Portable` 目录通过真实 `启动.cmd` 入口启动成功，窗口标题为“声作”、主进程保持响应且创建 3 个子进程；重复启动保持单实例。
+- 2026-08-21 复测确认未签名 `ShengZuo.exe` 可能被端点策略拦截，而便携包的 CMD 入口可以正常启动，因此只向用户保留一个 `启动.cmd` 入口。
 
 当前主机的端点策略会在 unsigned unpacked EXE 创建进程前返回 `Access is denied`。这不替代后续签名安装包在 Windows 10/11、150% DPI、中文用户名和多硬件环境中的真机验收。

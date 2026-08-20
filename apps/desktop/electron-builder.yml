@@ -14,6 +14,10 @@ files:
   - "!apps/desktop/dist-electron/**/*.map"
   - "package.json"
 extraResources:
+  - from: LICENSE
+    to: LICENSE
+  - from: PRIVACY.md
+    to: PRIVACY.md
   - from: licenses
     to: licenses
   - from: prompts
@@ -24,26 +28,43 @@ extraResources:
       - "**/*"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+      - "!**/*.pyo"
+      - "!**/test/**"
+      - "!**/tests/**"
   - from: engines/voxcpm2
     to: engines/voxcpm2
     filter:
       - "**/*"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+      - "!**/*.pyo"
+      - "!**/test/**"
+      - "!**/tests/**"
   - from: engines/fun-cosyvoice3
     to: engines/fun-cosyvoice3
     filter:
       - "**/*"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+      - "!**/*.pyo"
+      - "!**/test/**"
+      - "!**/tests/**"
   - from: engines/indextts2-5
     to: engines/indextts2-5
     filter:
       - "**/*"
       - "!**/__pycache__/**"
       - "!**/*.pyc"
+      - "!**/*.pyo"
+      - "!**/test/**"
+      - "!**/tests/**"
   - from: apps/desktop/build
     to: build
+extraFiles:
+  - from: 预置声音
+    to: 预置声音
+    filter:
+      - "**/*"
 extraMetadata:
   name: shengzuo
   description: "声作是一款 Windows 本地声音克隆、长稿配音与多人脚本工作台"

@@ -39,6 +39,10 @@ import {
 
 import { handleAudioScheme } from "./audioProtocol";
 import { DiagnosticsService } from "./diagnostics";
+import {
+  importedDocumentExtensions,
+  readImportedDocument,
+} from "./documentImport";
 import { ExportPreferencesStore } from "./exportPreferences";
 import { LocalVoiceEngine } from "./localVoiceEngine";
 import {
@@ -70,9 +74,18 @@ const sanitizeFileStem = (value: string): string =>
     .slice(0, 120) || APP_NAME;
 
 export const registerIpcHandlers = (): (() => void) => {
-  const voiceStore = new VoiceStore(
-    path.join(app.getPath("userData"), "voices"),
-  );
+  const legacyVoicesRoot = path.join(app.getPath("userData"), "voices");
+  const voicesRoot = path.join(app.getPath("documents"), "声作声音库");
+  const portablePresetVoicesRoot = process.env.SHENGZUO_PRESET_VOICES?.trim();
+  const bundledVoicesRoot = portablePresetVoicesRoot
+    ? path.resolve(portablePresetVoicesRoot)
+    : app.isPackaged
+      ? path.join(path.dirname(app.getPath("exe")), "预置声音")
+      : path.resolve(app.getAppPath(), "../../预置声音");
+  const voiceStore = new VoiceStore(voicesRoot, [
+    legacyVoicesRoot,
+    bundledVoicesRoot,
+  ]);
   const engine = new LocalVoiceEngine(voiceStore);
   const workspaceRoot = path.join(app.getPath("userData"), "workspace");
   const projectStore = new ProjectStore(path.join(workspaceRoot, "projects"));
@@ -110,6 +123,18 @@ export const registerIpcHandlers = (): (() => void) => {
     }
   });
   const unsubscribeTasks = engine.subscribeTasks((task) => {
+    void diagnostics.record(
+      "task",
+      [
+        task.status,
+        `model=${task.modelId}`,
+        `kind=${task.kind}`,
+        `segments=${task.currentSegment}/${task.totalSegments}`,
+        task.errorCode ? `code=${task.errorCode}` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.tasks.changed, task);
@@ -179,6 +204,7 @@ export const registerIpcHandlers = (): (() => void) => {
     const report = await checkAndRepairSystem({
       modelLibraryRoot,
       userDataRoot: app.getPath("userData"),
+      voicesRoot,
       enginePluginsRoot,
       hardware: await detectHardware(),
       snapshots: engine.listSnapshots(),
@@ -318,6 +344,10 @@ export const registerIpcHandlers = (): (() => void) => {
     if (!isVoiceId(taskId)) throw new Error("找不到这个任务，请刷新后重试。");
     return engine.cancelTask(taskId);
   });
+  ipcMain.handle(IPC_CHANNELS.tasks.remove, (_event, taskId: unknown) => {
+    if (!isVoiceId(taskId)) throw new Error("找不到这个任务，请刷新后重试。");
+    return engine.removeTask(taskId);
+  });
   ipcMain.handle(IPC_CHANNELS.voices.list, () => voiceStore.list());
   ipcMain.handle(IPC_CHANNELS.voices.selectSample, () =>
     voiceStore.selectSample(),
@@ -371,6 +401,34 @@ export const registerIpcHandlers = (): (() => void) => {
     if (!isVoiceId(voiceId)) throw new Error("找不到这个声音，请刷新后重试。");
     return voiceStore.remove(voiceId);
   });
+  ipcMain.handle(IPC_CHANNELS.voices.openFolder, async () => {
+    await mkdir(voicesRoot, { recursive: true });
+    return (await shell.openPath(voicesRoot)) === "";
+  });
+  ipcMain.handle(IPC_CHANNELS.documents.select, async () => {
+    const selected = await dialog.showOpenDialog({
+      title: "选择文稿",
+      properties: ["openFile"],
+      filters: [
+        {
+          name: "文稿文件",
+          extensions: [...importedDocumentExtensions],
+        },
+      ],
+    });
+    const filePath = selected.filePaths[0];
+    if (selected.canceled || !filePath) return null;
+    return readImportedDocument(filePath);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.documents.readDropped,
+    (_event, filePath: unknown) => {
+      if (typeof filePath !== "string") {
+        throw new Error("没有读取到这个文件，请重新拖入。");
+      }
+      return readImportedDocument(filePath);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.audio.listResults, () => engine.listResults());
   ipcMain.handle(IPC_CHANNELS.audio.getExportNamingSettings, () =>
     exportPreferences.getSettings(),
@@ -442,7 +500,7 @@ export const registerIpcHandlers = (): (() => void) => {
     IPC_CHANNELS.smart.updateConfig,
     (_event, request: unknown) => {
       if (!isUpdateSmartApiConfigRequest(request)) {
-        throw new Error("API配置有误，请检查 Base URL 和 Model。");
+        throw new Error("API配置有误，请检查接口地址和模型名称。");
       }
       return smartApi.updateConfig(request);
     },
@@ -497,6 +555,7 @@ export const registerIpcHandlers = (): (() => void) => {
     ipcMain.removeHandler(IPC_CHANNELS.tasks.enqueue);
     ipcMain.removeHandler(IPC_CHANNELS.tasks.retry);
     ipcMain.removeHandler(IPC_CHANNELS.tasks.cancel);
+    ipcMain.removeHandler(IPC_CHANNELS.tasks.remove);
     ipcMain.removeHandler(IPC_CHANNELS.voices.list);
     ipcMain.removeHandler(IPC_CHANNELS.voices.selectSample);
     ipcMain.removeHandler(IPC_CHANNELS.voices.selectDroppedSample);
@@ -506,6 +565,9 @@ export const registerIpcHandlers = (): (() => void) => {
     ipcMain.removeHandler(IPC_CHANNELS.voices.selectSampleForVoice);
     ipcMain.removeHandler(IPC_CHANNELS.voices.removeSample);
     ipcMain.removeHandler(IPC_CHANNELS.voices.remove);
+    ipcMain.removeHandler(IPC_CHANNELS.voices.openFolder);
+    ipcMain.removeHandler(IPC_CHANNELS.documents.select);
+    ipcMain.removeHandler(IPC_CHANNELS.documents.readDropped);
     ipcMain.removeHandler(IPC_CHANNELS.audio.exportResult);
     ipcMain.removeHandler(IPC_CHANNELS.audio.listResults);
     ipcMain.removeHandler(IPC_CHANNELS.audio.getExportNamingSettings);

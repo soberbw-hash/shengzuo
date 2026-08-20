@@ -23,7 +23,7 @@ export const GlassCard = ({
 }: PropsWithChildren<GlassCardProps>) => (
   <div
     className={cn(
-      "glass-card rounded-[22px]",
+      "glass-card rounded-[18px]",
       tone === "solid" && "glass-card--solid",
       tone === "soft" && "glass-card--soft",
       paddingClasses[padding],

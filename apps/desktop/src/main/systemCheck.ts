@@ -15,6 +15,7 @@ import type {
 interface SystemCheckContext {
   modelLibraryRoot: string;
   userDataRoot: string;
+  voicesRoot?: string;
   enginePluginsRoot: string;
   hardware: HardwareProfile;
   snapshots: EngineSnapshot[];
@@ -127,7 +128,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "notice",
-      detail: "还没有下载。需要时可到“本地引擎”下载安装。",
+      detail: "还没有下载。需要时可到“本地模型”下载安装。",
     };
   }
   if (
@@ -138,7 +139,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "notice",
-      detail: "下载还没有完成。打开“本地引擎”可以继续下载。",
+      detail: "下载还没有完成。打开“本地模型”可以继续下载。",
     };
   }
   const requiredFiles = [
@@ -154,7 +155,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "attention",
-      detail: `模型缺少 ${missingFiles.length} 个文件，请到“本地引擎”重新下载。`,
+      detail: `模型缺少 ${missingFiles.length} 个文件，请到“本地模型”重新下载。`,
     };
   }
   if (!(await hasFfmpeg(modelRoot))) {
@@ -162,7 +163,7 @@ const checkModel = async (
       id: `model-${config.id}`,
       label: config.name,
       status: "attention",
-      detail: "模型缺少生成音频需要的文件，请到“本地引擎”重新准备。",
+      detail: "模型缺少生成音频需要的文件，请到“本地模型”重新准备。",
     };
   }
   return {
@@ -205,7 +206,7 @@ export const checkAndRepairSystem = async (
     context.modelLibraryRoot,
     path.join(context.userDataRoot, "workspace"),
     path.join(context.userDataRoot, "outputs"),
-    path.join(context.userDataRoot, "voices"),
+    context.voicesRoot ?? path.join(context.userDataRoot, "voices"),
   ];
   const storageResults = await Promise.all(
     storageDirectories.map(ensureWritableDirectory),

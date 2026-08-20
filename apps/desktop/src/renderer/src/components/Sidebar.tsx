@@ -21,6 +21,7 @@ const RouteLink = ({
     <NavLink
       to={route.path}
       end={route.path === "/"}
+      title={`${route.label} · ${route.caption}`}
       className={({ isActive }) =>
         cn(
           "nav-item",
@@ -34,31 +35,43 @@ const RouteLink = ({
       </span>
       <span className="min-w-0 flex-1">
         <strong>{route.label}</strong>
-        {compact ? null : <small>{route.caption}</small>}
+        {compact ? null : <small title={route.caption}>{route.caption}</small>}
       </span>
     </NavLink>
   );
 };
 
-export const Sidebar = () => {
-  return (
-    <aside className="sidebar">
-      <nav className="space-y-1" aria-label="主导航">
-        {primaryRoutes.map((route) => (
-          <RouteLink key={route.path} route={route} />
-        ))}
-
-        <div className="nav-section-label">模型</div>
-        <div className="space-y-1">
-          {toolRoutes.map((route) => (
+export const Sidebar = () => (
+  <aside className="sidebar">
+    <nav className="space-y-1" aria-label="主导航">
+      <div className="nav-section-label">创作</div>
+      <div className="space-y-1">
+        {primaryRoutes
+          .filter((route) => route.area === "create")
+          .map((route) => (
             <RouteLink key={route.path} route={route} />
           ))}
-        </div>
-      </nav>
-
-      <div className="mt-auto space-y-1">
-        <RouteLink route={settingsRoute} compact />
       </div>
-    </aside>
-  );
-};
+
+      <div className="nav-section-label">内容</div>
+      <div className="space-y-1">
+        {primaryRoutes
+          .filter((route) => route.area === "library")
+          .map((route) => (
+            <RouteLink key={route.path} route={route} />
+          ))}
+      </div>
+
+      <div className="nav-section-label">模型</div>
+      <div className="space-y-1">
+        {toolRoutes.map((route) => (
+          <RouteLink key={route.path} route={route} />
+        ))}
+      </div>
+    </nav>
+
+    <div className="mt-auto space-y-1">
+      <RouteLink route={settingsRoute} compact />
+    </div>
+  </aside>
+);

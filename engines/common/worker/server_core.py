@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -60,6 +61,22 @@ def is_within(candidate: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def public_error_code(error: Exception) -> str:
+    raw = str(error).strip()
+    if re.fullmatch(r"[A-Z][A-Z0-9_]{2,79}", raw):
+        return raw
+    lowered = raw.lower()
+    if "out of memory" in lowered or "memory allocation" in lowered:
+        return "GPU_MEMORY_LOW"
+    if any(token in lowered for token in ("cuda", "cudnn", "cublas", "device-side")):
+        return "GPU_RUNTIME_ERROR"
+    if isinstance(error, subprocess.CalledProcessError) or any(
+        token in lowered for token in ("ffmpeg", "audio conversion", "encoding")
+    ):
+        return "AUDIO_CONVERSION_FAILED"
+    return "WORKER_ERROR"
 
 
 def ffmpeg_executable() -> str:
@@ -146,10 +163,13 @@ class CosyVoiceBackend:
         if language not in SUPPORTED_LANGUAGES:
             raise RuntimeError("UNSUPPORTED_LANGUAGE")
         dialect = DIALECT_NAMES.get(language)
-        if dialect:
-            instruction_parts = [f"请用{dialect}表达"]
-            if expression and expression not in {"自然", "自然、清晰"}:
-                instruction_parts.append(expression)
+        custom_expression = expression.strip() not in {"", "自然", "自然、清晰"}
+        if dialect or custom_expression:
+            instruction_parts = []
+            if dialect:
+                instruction_parts.append(f"请用{dialect}表达")
+            if custom_expression:
+                instruction_parts.append(expression.strip())
             instruction = "You are a helpful assistant. " + "，".join(instruction_parts) + "。<|endofprompt|>"
             iterator = self.model.inference_instruct2(
                 text, instruction, str(reference_audio), stream=False, speed=1.0
@@ -412,9 +432,7 @@ class VoiceWorkerHandler(BaseHTTPRequestHandler):
             else:
                 self.send_json(404, {"ok": False, "code": "NOT_FOUND"})
         except Exception as error:
-            raw_code = str(error).split(":", maxsplit=1)[0]
-            code = raw_code if raw_code.replace("_", "").isalnum() and raw_code.upper() == raw_code and len(raw_code) > 2 else "WORKER_ERROR"
-            self.send_json(500, {"ok": False, "code": code[:80]})
+            self.send_json(500, {"ok": False, "code": public_error_code(error)})
 
     def handle_handshake(self) -> None:
         if not self.trusted_loopback_request() or self.server.boot_token is None:

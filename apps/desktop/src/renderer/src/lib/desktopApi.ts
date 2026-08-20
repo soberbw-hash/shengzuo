@@ -20,6 +20,7 @@ let browserSmartConfig: SmartApiConfig = {
   baseUrl: "https://api.example.com/v1",
   model: "preview-model",
   hasApiKey: true,
+  apiKeyStatus: "ready",
 };
 const browserTaskListeners = new Set<(task: GenerationTask) => void>();
 
@@ -33,6 +34,7 @@ const browserSmartConfigForPage = (): SmartApiConfig =>
         baseUrl: "",
         model: "",
         hasApiKey: false,
+        apiKeyStatus: "missing",
       }
     : browserSmartConfig;
 
@@ -89,6 +91,52 @@ const browserPreviewProjects = (): GenerationProject[] => {
 const browserPreviewTasks = (): GenerationTask[] => {
   if (browserCaptureMode() !== "records") return [];
   const now = new Date().toISOString();
+  if (new URLSearchParams(window.location.search).get("queue") === "1") {
+    return [
+      {
+        id: "task-running-preview",
+        title: "新品介绍字幕",
+        kind: "subtitles",
+        modelId: "voxcpm2",
+        status: "running",
+        progress: 36,
+        message: "正在生成第 9 / 26 句",
+        currentSegment: 9,
+        totalSegments: 26,
+        projectId: "project-12345678-preview",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "task-failed-preview",
+        title: "播客双人对话",
+        kind: "dialogue",
+        modelId: "fun-cosyvoice3-0.5b",
+        status: "failed",
+        progress: 0,
+        message: "没有找到这条声音的录音，请重新克隆声音。",
+        currentSegment: 0,
+        totalSegments: 12,
+        projectId: "project-87654321-preview",
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "task-queued-preview",
+        title: "产品功能旁白",
+        kind: "single",
+        modelId: "voxcpm2",
+        status: "queued",
+        progress: 0,
+        message: "排在第 1 位",
+        currentSegment: 0,
+        totalSegments: 1,
+        projectId: "project-12345678-preview",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  }
   return [
     {
       id: "task-completed-preview-1",
@@ -283,7 +331,12 @@ const browserApi: DesktopApi = {
   },
   engine: {
     getSnapshot: () => Promise.resolve(browserEngine.getSnapshot()),
-    listSnapshots: () => Promise.resolve([browserEngine.getSnapshot()]),
+    listSnapshots: () => {
+      const snapshot = browserEngine.getSnapshot();
+      return Promise.resolve(
+        MODEL_CATALOG.map((model) => ({ ...snapshot, modelId: model.id })),
+      );
+    },
     command: (command) => Promise.resolve(browserEngine.command(command)),
     onSnapshot: (listener) => browserEngine.subscribe(listener),
   },
@@ -378,15 +431,51 @@ const browserApi: DesktopApi = {
       return Promise.resolve(task);
     },
     retry: (taskId) => {
+      if (!browserTasks.length) browserTasks = browserPreviewTasks();
       const task = browserTasks.find((item) => item.id === taskId);
       if (!task) return Promise.reject(new Error("任务不存在。"));
-      return Promise.resolve(task);
+      const queued: GenerationTask = {
+        ...task,
+        status: "queued",
+        progress: 0,
+        message: "已重新排队。",
+        updatedAt: new Date().toISOString(),
+      };
+      browserTasks = [
+        queued,
+        ...browserTasks.filter((item) => item.id !== taskId),
+      ];
+      for (const listener of browserTaskListeners) listener(queued);
+      window.setTimeout(() => {
+        const failed: GenerationTask = {
+          ...queued,
+          status: "failed",
+          message: "测试任务没有生成成功，请检查声音后重试。",
+          updatedAt: new Date().toISOString(),
+        };
+        browserTasks = [
+          failed,
+          ...browserTasks.filter((item) => item.id !== taskId),
+        ];
+        for (const listener of browserTaskListeners) listener(failed);
+      }, 80);
+      return Promise.resolve(queued);
     },
     cancel: (taskId) => {
       const task = browserTasks.find((item) => item.id === taskId);
       if (!task) return Promise.reject(new Error("任务不存在。"));
       task.status = "canceled";
       return Promise.resolve(task);
+    },
+    remove: (taskId) => {
+      if (!browserTasks.length) browserTasks = browserPreviewTasks();
+      const task = browserTasks.find((item) => item.id === taskId);
+      if (!task) return Promise.reject(new Error("任务不存在。"));
+      if (task.status === "queued" || task.status === "running") {
+        return Promise.reject(new Error("任务还在处理中，请先取消再移除。"));
+      }
+      browserTasks = browserTasks.filter((item) => item.id !== taskId);
+      return Promise.resolve(true);
     },
     onChanged: (listener) => {
       browserTaskListeners.add(listener);
@@ -446,10 +535,10 @@ const browserApi: DesktopApi = {
       Promise.resolve({
         id: request.voiceId,
         name: request.name.trim(),
-        description: "高保真声音克隆",
+        description: "",
         kind: "cloned",
         modelId: "voxcpm2",
-        model: "三款模型通用",
+        model: "",
         color: "#54a8ef",
         sampleName: "preview.wav",
         hasReferenceText: true,
@@ -462,6 +551,18 @@ const browserApi: DesktopApi = {
     removeSample: () =>
       Promise.reject(new Error("浏览器预览不能删除真实参考录音。")),
     remove: () => Promise.resolve(false),
+    openFolder: () => Promise.resolve(false),
+  },
+  documents: {
+    select: () => Promise.resolve(null),
+    readDropped: async (file) => {
+      if (!/\.(?:txt|srt|md|markdown|csv)$/iu.test(file.name)) {
+        throw new Error("浏览器预览不能读取 Office 文件，请在桌面软件中测试。");
+      }
+      const text = (await file.text()).trim();
+      if (!text) throw new Error("文件里没有可读取的文字。");
+      return { name: file.name, kind: "text", text };
+    },
   },
   audio: {
     listResults: () => Promise.resolve(browserPreviewResults()),
@@ -495,6 +596,12 @@ const browserApi: DesktopApi = {
           request.clearApiKey === true
             ? false
             : Boolean(request.apiKey?.trim()) || browserSmartConfig.hasApiKey,
+        apiKeyStatus:
+          request.clearApiKey === true
+            ? "missing"
+            : Boolean(request.apiKey?.trim()) || browserSmartConfig.hasApiKey
+              ? "ready"
+              : "missing",
       };
       return Promise.resolve(browserSmartConfig);
     },
@@ -506,23 +613,32 @@ const browserApi: DesktopApi = {
       }),
     processText: (request) =>
       Promise.resolve({
-        revisedText:
-          request.action === "pause"
-            ? request.text.replaceAll("，", "， ")
-            : `${request.text.replace(/\s+/gu, " ").trim()}（已优化）`,
-        summary: "已保留原意，并让文字更适合朗读。",
-        pronunciations: request.text.includes("AI")
-          ? [{ source: "AI", replacement: "A I" }]
-          : [],
-        expressionSuggestion:
-          request.modelId === "fun-cosyvoice3-0.5b" && request.language === "zh"
-            ? undefined
-            : "自然清晰，重点处稍作停顿",
-        emotionSuggestion:
-          request.modelId === "indextts2-5" ? ("温暖" as const) : undefined,
+        summary: "原稿未修改，已标注 1 个配音片段。",
+        segments: [
+          {
+            text: request.text.trim(),
+            pauseAfterMs: 260,
+            mood: "温暖" as const,
+            emotion:
+              request.modelId === "indextts2-5" ? ("温暖" as const) : undefined,
+            expression:
+              request.modelId === "indextts2-5"
+                ? undefined
+                : "语气温和自然，速度平缓",
+          },
+        ],
       }),
-    processDialogue: () =>
-      Promise.resolve({
+    processDialogue: (request) => {
+      if (/^\s*旁白[：:]/u.test(request.text)) {
+        const text = request.text.replace(/^\s*旁白[：:]\s*/u, "").trim();
+        return Promise.resolve({
+          lines: [{ role: "旁白", text }],
+          roles: ["旁白"],
+          summary: "已整理出 1 个角色、1 句台词。",
+          removedContent: [],
+        });
+      }
+      return Promise.resolve({
         lines: [
           { role: "小林", text: "我们出发吧。" },
           { role: "阿宁", text: "好，现在就走。" },
@@ -530,7 +646,8 @@ const browserApi: DesktopApi = {
         roles: ["小林", "阿宁"],
         summary: "已整理出 2 个角色、2 句台词。",
         removedContent: ["场景描述", "动作说明"],
-      }),
+      });
+    },
   },
 };
 

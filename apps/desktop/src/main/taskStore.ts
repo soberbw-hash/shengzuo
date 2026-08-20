@@ -28,6 +28,8 @@ const isStoredTask = (value: unknown): value is StoredGenerationTask => {
     typeof task.totalSegments === "number" &&
     typeof task.createdAt === "string" &&
     typeof task.updatedAt === "string" &&
+    (task.errorCode === undefined || typeof task.errorCode === "string") &&
+    (task.preview === undefined || typeof task.preview === "boolean") &&
     isEnqueueTaskRequest(task.command)
   );
 };

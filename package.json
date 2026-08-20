@@ -22,6 +22,7 @@
     "format:check": "prettier --check .",
     "test": "pnpm -r --if-present test",
     "package:win": "pnpm --dir apps/desktop package:win",
+    "package:review": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1",
     "visual:capture": "pnpm build && node scripts/capture-visuals.cjs",
     "test:interaction": "pnpm build && node scripts/run-interaction-smoke.cjs",
     "pretest:audio": "pnpm assets:generate",

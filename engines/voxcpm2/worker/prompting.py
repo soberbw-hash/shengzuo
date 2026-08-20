@@ -28,15 +28,38 @@ def is_neutral_expression(value: str) -> bool:
     }
 
 
+def clean_control_instruction(value: str) -> str:
+    """Keep control text short and prevent nested tags from becoming speech."""
+    without_tags = re.sub(r"[()（）\r\n]", " ", value)
+    return re.sub(r"\s+", " ", without_tags).strip()[:200]
+
+
 def prepare_target_text(text: str, language: str, expression: str) -> tuple[str, bool]:
     instructions: list[str] = []
     dialect = DIALECT_NAMES.get(language)
     if dialect:
         instructions.append(dialect)
     if not is_neutral_expression(expression):
-        cleaned_expression = re.sub(r"[()（）]", "", expression).strip()
+        cleaned_expression = clean_control_instruction(expression)
         if cleaned_expression:
             instructions.append(cleaned_expression)
     if not instructions:
         return text, False
     return f"({','.join(instructions)}){text}", True
+
+
+def build_voice_design_text(text: str, description: str) -> str:
+    cleaned_description = clean_control_instruction(description)
+    if len(cleaned_description) < 4:
+        raise ValueError("VOICE_DESCRIPTION_REQUIRED")
+    return f"({cleaned_description}){text}"
+
+
+def reference_text_is_plausible(reference_text: str, duration_seconds: float) -> bool:
+    """Reject clearly incomplete transcripts before Vox continuation cloning."""
+    meaningful_units = len(
+        re.findall(r"[A-Za-z0-9\u3400-\u9fff]", reference_text)
+    )
+    minimum_units = max(4, int(duration_seconds + 0.999))
+    maximum_units = int(duration_seconds * 14) + 20
+    return minimum_units <= meaningful_units <= maximum_units

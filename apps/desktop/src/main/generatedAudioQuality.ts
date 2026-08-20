@@ -51,14 +51,14 @@ export const assessGeneratedAudio = (
 
   if (secondsPerUnit !== undefined) {
     const minimum = mode === "careful" ? 0.075 : 0.055;
-    if (secondsPerUnit < minimum) add("疑似漏读或语速异常", 80, true);
+    if (secondsPerUnit < minimum) add("疑似漏读或语速异常", 80);
     if (secondsPerUnit > 1.2) add("疑似异常停顿", 50);
     if (
       baselineSecondsPerUnit !== undefined &&
       secondsPerUnit <
         baselineSecondsPerUnit * (mode === "careful" ? 0.72 : 0.64)
     )
-      add("语速明显变快", 70, mode === "careful");
+      add("语速明显变快", 70);
   }
 
   return { issues, critical, score, secondsPerUnit };

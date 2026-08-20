@@ -19,9 +19,9 @@ export interface ButtonProps extends NativeButtonProps {
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "border border-[#3f91ec] bg-[linear-gradient(180deg,#64b4ff_0%,#438fe9_100%)] text-white shadow-[0_7px_18px_rgba(47,111,204,.20),inset_0_1px_0_rgba(255,255,255,.40)] hover:brightness-[1.025]",
+    "border border-[#3f8fe8] bg-[#438fe9] text-white shadow-[0_5px_14px_rgba(47,111,204,.18),inset_0_1px_0_rgba(255,255,255,.28)] hover:bg-[#3987e1]",
   secondary:
-    "border border-[#d6e2ef] bg-[linear-gradient(180deg,rgba(255,255,255,.98),rgba(247,250,253,.96))] text-[#27364a] shadow-[0_4px_12px_rgba(63,102,160,.08),inset_0_1px_0_white] hover:border-[#c4d5e7] hover:bg-white",
+    "border border-[#d3e0ec] bg-white/90 text-[#27364a] shadow-[0_2px_8px_rgba(63,102,160,.06),inset_0_1px_0_white] hover:border-[#bdd2e6] hover:bg-white",
   ghost:
     "border border-transparent bg-transparent text-[#66768b] shadow-none hover:border-[#dfe8f2] hover:bg-white/55 hover:text-[#27364a]",
   danger:
@@ -43,8 +43,10 @@ export const Button = ({
     <motion.button
       type={type}
       className={cn(
-        "no-drag inline-flex items-center justify-center gap-2 rounded-[13px] font-semibold transition-[filter,background-color,border-color,box-shadow,color,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4da3ff]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f3f7fc] disabled:pointer-events-none disabled:opacity-45",
-        size === "md" ? "h-11 px-4 text-[13px]" : "h-9 px-3 text-[12px]",
+        "no-drag inline-flex min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-[11px] font-semibold leading-tight transition-[filter,background-color,border-color,box-shadow,color,opacity] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4da3ff]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#f3f7fc] disabled:pointer-events-none disabled:opacity-45",
+        size === "md"
+          ? "min-h-11 px-4 py-2 text-[13px]"
+          : "min-h-9 px-3 py-1.5 text-[12px]",
         variants[variant],
         fullWidth && "w-full",
         className,

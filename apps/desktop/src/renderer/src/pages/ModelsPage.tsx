@@ -17,6 +17,7 @@ import {
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
   type DownloadSource,
+  type EngineSnapshot,
   type EngineStatus,
   type ModelStorageInfo,
   type ModelId,
@@ -33,6 +34,7 @@ import {
 import { PageHeader } from "../components/PageHeader";
 import { ModelRating } from "../components/ModelRating";
 import { desktopApi } from "../lib/desktopApi";
+import { getUserErrorMessage } from "../lib/errorMessage";
 import { useStudioStore } from "../store/studioStore";
 
 const states: EngineStatus[] = [
@@ -55,6 +57,33 @@ const COSYVOICE_DIALECTS = LANGUAGE_OPTIONS.filter(
     option.group === "dialect" &&
     MODEL_LANGUAGE_SUPPORT[COSYVOICE_ID].includes(option.id),
 );
+
+interface ModelsPageLoadIssues {
+  snapshots: boolean;
+  downloadSource: boolean;
+  storage: Partial<Record<ModelId, boolean>>;
+}
+
+type ModelsPageLoadValue =
+  | { kind: "snapshots"; value: EngineSnapshot[] }
+  | { kind: "download-source"; value: DownloadSource }
+  | { kind: "storage"; modelId: ModelId; value: ModelStorageInfo };
+
+interface ModelsPageLoadTask {
+  kind: ModelsPageLoadValue["kind"];
+  modelId?: ModelId;
+  promise: Promise<ModelsPageLoadValue>;
+}
+
+const MODEL_USE_STATUSES = new Set<EngineStatus>([
+  "ready",
+  "success",
+  "generation-failed",
+  "stopped",
+]);
+
+const isExplicitModelUseStatus = (status: EngineStatus): boolean =>
+  MODEL_USE_STATUSES.has(status);
 
 const formatBytes = (bytes: number): string => {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 GB";
@@ -91,7 +120,7 @@ const stateAction = (
     return { label: "使用", icon: Play };
   if (status === "loading" || status === "generating")
     return { label: "运行中", icon: Play };
-  return { label: "下载并使用", icon: Download };
+  return { label: "下载", icon: Download };
 };
 
 export const ModelsPage = () => {
@@ -121,6 +150,11 @@ export const ModelsPage = () => {
       : null,
   );
   const [changingModelsPath, setChangingModelsPath] = useState(false);
+  const [loadIssues, setLoadIssues] = useState<ModelsPageLoadIssues>({
+    snapshots: false,
+    downloadSource: false,
+    storage: {},
+  });
   const snapshot = engine ?? {
     status: "not-installed" as const,
     modelId: selectedModel,
@@ -130,31 +164,98 @@ export const ModelsPage = () => {
   };
   useEffect(() => {
     let disposed = false;
-    const refresh = () => {
-      void Promise.all([
-        desktopApi.engine.listSnapshots(),
-        desktopApi.models.getDownloadSource(),
-        ...MODEL_CATALOG.map((model) =>
-          desktopApi.models.getStorageInfo(model.id),
+    const refresh = async () => {
+      const loadTasks: ModelsPageLoadTask[] = [
+        {
+          kind: "snapshots",
+          promise: desktopApi.engine
+            .listSnapshots()
+            .then((value) => ({ kind: "snapshots", value })),
+        },
+        {
+          kind: "download-source",
+          promise: desktopApi.models
+            .getDownloadSource()
+            .then((value) => ({ kind: "download-source", value })),
+        },
+        ...MODEL_CATALOG.map(
+          (model): ModelsPageLoadTask => ({
+            kind: "storage",
+            modelId: model.id,
+            promise: desktopApi.models
+              .getStorageInfo(model.id)
+              .then((value) => ({
+                kind: "storage",
+                modelId: model.id,
+                value,
+              })),
+          }),
         ),
-      ]).then(([items, source, ...storageInfo]) => {
-        if (disposed) return;
-        if (!isTestState) setEngines(items);
-        setDownloadSource(source);
-        setStorage(
-          Object.fromEntries(
-            storageInfo.map((info) => [info.modelId, info]),
-          ) as Partial<Record<ModelId, ModelStorageInfo>>,
-        );
+      ];
+      const settled = await Promise.allSettled(
+        loadTasks.map((task) => task.promise),
+      );
+      if (disposed) return;
+
+      const nextIssues: ModelsPageLoadIssues = {
+        snapshots: false,
+        downloadSource: false,
+        storage: {},
+      };
+      const storageUpdates: Partial<Record<ModelId, ModelStorageInfo>> = {};
+
+      settled.forEach((result, index) => {
+        const task = loadTasks[index];
+        if (!task) return;
+        if (result.status === "rejected") {
+          if (task.kind === "snapshots") nextIssues.snapshots = true;
+          if (task.kind === "download-source") {
+            nextIssues.downloadSource = true;
+          }
+          if (task.kind === "storage" && task.modelId) {
+            nextIssues.storage[task.modelId] = true;
+          }
+          return;
+        }
+
+        const loaded = result.value;
+        if (loaded.kind === "snapshots") {
+          if (!isTestState) setEngines(loaded.value);
+          return;
+        }
+        if (loaded.kind === "download-source") {
+          setDownloadSource(loaded.value);
+          return;
+        }
+        storageUpdates[loaded.modelId] = loaded.value;
       });
+
+      setStorage((current) => ({ ...current, ...storageUpdates }));
+      setLoadIssues(nextIssues);
+
+      const failedStorageCount = Object.keys(nextIssues.storage).length;
+      const failedParts = [
+        nextIssues.snapshots ? "模型状态" : "",
+        nextIssues.downloadSource ? "下载源" : "",
+        failedStorageCount > 0 ? `${failedStorageCount} 个模型的空间信息` : "",
+      ].filter(Boolean);
+      if (failedParts.length > 0) {
+        pushToast({
+          title: "部分模型信息没有刷新",
+          description: `暂时没有读到：${failedParts.join("、")}。其他信息仍可正常使用，回到本页会自动重试。`,
+          tone: "warning",
+          dedupeKey: "models-page-partial-load",
+        });
+      }
     };
-    refresh();
-    window.addEventListener("focus", refresh);
+    void refresh();
+    const refreshOnFocus = () => void refresh();
+    window.addEventListener("focus", refreshOnFocus);
     return () => {
       disposed = true;
-      window.removeEventListener("focus", refresh);
+      window.removeEventListener("focus", refreshOnFocus);
     };
-  }, [isTestState, setEngines]);
+  }, [isTestState, pushToast, setEngines]);
 
   useEffect(() => {
     void desktopApi.app.getModelsPath().then(setModelsPath);
@@ -171,7 +272,7 @@ export const ModelsPage = () => {
     } catch (error) {
       pushToast({
         title: "下载源没有切换",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     }
@@ -199,7 +300,7 @@ export const ModelsPage = () => {
     } catch (error) {
       pushToast({
         title: "模型没有导入",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     } finally {
@@ -242,7 +343,7 @@ export const ModelsPage = () => {
     } catch (error) {
       pushToast({
         title: "没有更改模型位置",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     } finally {
@@ -251,7 +352,6 @@ export const ModelsPage = () => {
   };
 
   const actionFor = async (modelId: ModelId, status: EngineStatus) => {
-    setSelectedModel(modelId);
     if (status === "downloading" || status === "installing") {
       setEngine(
         await desktopApi.engine.command({ type: "pause-download", modelId }),
@@ -264,49 +364,48 @@ export const ModelsPage = () => {
       setEngine(await desktopApi.engine.command({ type: "retry", modelId }));
     } else if (status === "not-installed") {
       setPendingDownload(modelId);
-    } else if (
-      status === "ready" ||
-      status === "success" ||
-      status === "generation-failed" ||
-      status === "stopped"
-    ) {
-      setEngine(await desktopApi.engine.command({ type: "prepare", modelId }));
+    } else if (isExplicitModelUseStatus(status)) {
+      const prepared = await desktopApi.engine.command({
+        type: "prepare",
+        modelId,
+      });
+      setEngine(prepared);
+      setSelectedModel(modelId);
       void navigate("/");
     }
   };
 
   return (
-    <div className="page-content">
+    <div className="page-content models-page">
       <PageHeader
-        title="选择模型"
-        description="看用途选一个；拿不准就用 VoxCPM2。"
+        title="本地模型"
+        description="按用途选一款；不知道怎么选就用 VoxCPM2。"
         actions={
-          <Button
-            variant="secondary"
-            onClick={() => void desktopApi.app.openModelsFolder()}
-          >
-            <FolderOpen className="h-4 w-4" />
-            打开模型文件夹
-          </Button>
+          <div className="page-header-actions model-page-actions">
+            <div className="model-download-source-field">
+              <SelectField
+                label="下载源"
+                value={downloadSource}
+                onChange={(event) =>
+                  void changeDownloadSource(
+                    event.target.value as DownloadSource,
+                  )
+                }
+              >
+                <option value="official">官方源</option>
+                <option value="mirror">备用源</option>
+              </SelectField>
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() => void desktopApi.app.openModelsFolder()}
+            >
+              <FolderOpen className="h-4 w-4" />
+              打开模型文件夹
+            </Button>
+          </div>
         }
       />
-
-      <div className="model-download-toolbar">
-        <div>
-          <strong>下载设置</strong>
-          <p>下载慢就换备用源，关闭软件后也能继续。</p>
-        </div>
-        <SelectField
-          label="下载源"
-          value={downloadSource}
-          onChange={(event) =>
-            void changeDownloadSource(event.target.value as DownloadSource)
-          }
-        >
-          <option value="official">官方源</option>
-          <option value="mirror">备用源</option>
-        </SelectField>
-      </div>
 
       {isTestState ? (
         <div className="model-manager-banner">
@@ -335,6 +434,22 @@ export const ModelsPage = () => {
         </div>
       ) : null}
 
+      {!isTestState && (loadIssues.snapshots || loadIssues.downloadSource) ? (
+        <div className="model-manager-banner" role="status">
+          <span className="model-manager-banner__icon">
+            <RefreshCw className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <strong>部分信息没有刷新</strong>
+            <p>
+              {loadIssues.snapshots ? "模型状态暂时没有读到。" : ""}
+              {loadIssues.downloadSource ? "下载源暂按当前选项显示。" : ""}
+              切回本页会自动重试。
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="model-list">
         {MODEL_CATALOG.map((model, index) => {
           const isActive = model.id === selectedModel;
@@ -347,6 +462,8 @@ export const ModelsPage = () => {
           const action = stateAction(status);
           const ActionIcon = action.icon;
           const storageInfo = storage[model.id];
+          const snapshotUnavailable =
+            !isTestState && loadIssues.snapshots && !modelSnapshot;
           const progressText = [
             modelSnapshot?.message,
             status === "downloading"
@@ -374,9 +491,20 @@ export const ModelsPage = () => {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3>{model.name}</h3>
                     <span className="model-recommendation">{model.badge}</span>
-                    <StatusBadge tone={copy.tone}>{copy.label}</StatusBadge>
+                    {model.usageRestriction ? (
+                      <span
+                        className="model-usage-restriction"
+                        title="当前安装组合包含仅限非商业使用的辅助权重"
+                      >
+                        {model.usageRestriction}
+                      </span>
+                    ) : null}
+                    <StatusBadge
+                      tone={snapshotUnavailable ? "warning" : copy.tone}
+                    >
+                      {snapshotUnavailable ? "状态未读到" : copy.label}
+                    </StatusBadge>
                   </div>
-                  <p className="model-card__summary">{model.summary}</p>
                   <ModelRating value={model.rating} label={model.ratingLabel} />
                 </div>
                 <div className="model-card__actions">
@@ -385,7 +513,11 @@ export const ModelsPage = () => {
                     variant={
                       status === "download-failed" ? "danger" : "secondary"
                     }
-                    disabled={status === "loading" || status === "generating"}
+                    disabled={
+                      snapshotUnavailable ||
+                      status === "loading" ||
+                      status === "generating"
+                    }
                     onClick={() => void actionFor(model.id, status)}
                   >
                     <ActionIcon className="h-3.5 w-3.5" />
@@ -410,22 +542,33 @@ export const ModelsPage = () => {
               <div className="model-facts">
                 <div>
                   <span>适合</span>
-                  <strong>{model.purpose}</strong>
+                  <strong title={model.purpose}>{model.purpose}</strong>
                 </div>
                 <div>
                   <span>电脑需要</span>
-                  <strong>{model.recommendedHardware}</strong>
+                  <strong title={model.recommendedHardware}>
+                    {model.recommendedHardware}
+                  </strong>
                 </div>
                 <div>
                   <span>占用空间</span>
-                  <strong>{model.estimatedSize}</strong>
+                  <strong title={model.estimatedSize}>
+                    {model.estimatedSize}
+                  </strong>
                   {storageInfo ? (
-                    <small>还剩 {formatBytes(storageInfo.freeBytes)}</small>
+                    <small>
+                      还剩 {formatBytes(storageInfo.freeBytes)}
+                      {loadIssues.storage[model.id] ? " · 暂未刷新" : ""}
+                    </small>
+                  ) : loadIssues.storage[model.id] ? (
+                    <small>空间信息暂时没有读到</small>
                   ) : null}
                 </div>
                 <div>
                   <span>语言</span>
-                  <strong>{model.hardwareNote}</strong>
+                  <strong title={model.hardwareNote}>
+                    {model.hardwareNote}
+                  </strong>
                   {model.id === COSYVOICE_ID ? (
                     <button
                       type="button"
@@ -488,6 +631,13 @@ export const ModelsPage = () => {
           <p>
             完整许可文件保存在软件目录的 licenses 文件夹中，可长期查看和复制。
           </p>
+          {MODEL_CATALOG.find((model) => model.id === licenseModelId)
+            ?.usageRestriction ? (
+            <p className="model-license-restriction">
+              当前安装组合包含仅限非商业使用的辅助权重。用于收费内容、商业宣传或其他商业用途前，请先取得相应授权，或改用
+              VoxCPM2 / Fun-CosyVoice3。
+            </p>
+          ) : null}
         </div>
       </Modal>
 
@@ -535,6 +685,14 @@ export const ModelsPage = () => {
           <FolderOpen className="h-5 w-5" />
           <span title={modelsPath}>{modelsPath}</span>
         </div>
+        {pendingDownload === "indextts2-5" ? (
+          <div className="model-download-license-note" role="note">
+            <strong>当前组合仅限非商业使用</strong>
+            <p>
+              包含采用非商业许可的辅助权重。用于收费内容、商业宣传或其他商业用途前，请先取得授权，或选择另外两款模型。
+            </p>
+          </div>
+        ) : null}
       </Modal>
     </div>
   );

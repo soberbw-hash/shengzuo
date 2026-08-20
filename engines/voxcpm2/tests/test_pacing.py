@@ -25,13 +25,13 @@ class VoxPacingTests(unittest.TestCase):
         self.assertEqual("".join(chunks).replace(" ", ""), source)
 
     def test_counts_only_chinese_speech_units(self) -> None:
-        self.assertEqual(spoken_units("大家好，我是郑轮！2026"), 7)
+        self.assertEqual(spoken_units("大家好，我是小林！2026"), 7)
         self.assertIsNone(seconds_per_unit(2.0, "太短了"))
         self.assertAlmostEqual(seconds_per_unit(2.0, "这是刚好八个中文字啊") or 0, 0.2)
 
     def test_only_slows_chunks_that_are_clearly_faster(self) -> None:
         self.assertEqual(pace_correction(0.2, 0.18), 1.0)
-        self.assertAlmostEqual(pace_correction(0.2, 0.12), 0.75)
+        self.assertAlmostEqual(pace_correction(0.2, 0.12), 0.88)
         self.assertEqual(pace_correction(None, 0.12), 1.0)
 
 

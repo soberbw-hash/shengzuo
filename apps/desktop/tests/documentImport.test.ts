@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { promisify } from "node:util";
+
+import { readImportedDocument } from "../src/main/documentImport";
+
+const execFileAsync = promisify(execFile);
+
+const createOfficeArchive = async (
+  root: string,
+  extension: "docx" | "xlsx",
+  files: Array<{ name: string; content: string }>,
+): Promise<string> => {
+  const source = path.join(root, `${extension}-source`);
+  await mkdir(source, { recursive: true });
+  for (const file of files) {
+    const target = path.join(source, ...file.name.split("/"));
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, file.content, "utf8");
+  }
+  const zipPath = path.join(root, `${extension}.zip`);
+  const officePath = path.join(root, `文稿.${extension}`);
+  const topLevelEntries = [
+    ...new Set(
+      files
+        .map((file) => file.name.split("/")[0])
+        .filter((entry): entry is string => Boolean(entry)),
+    ),
+  ];
+  await execFileAsync(
+    "tar",
+    ["-a", "-cf", zipPath, "-C", source, ...topLevelEntries],
+    { windowsHide: true },
+  );
+  await rename(zipPath, officePath);
+  return officePath;
+};
+
+void test("imports text from Word DOCX documents", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-docx-"));
+  try {
+    const filePath = await createOfficeArchive(root, "docx", [
+      {
+        name: "word/document.xml",
+        content:
+          '<w:document xmlns:w="word"><w:body><w:p><w:r><w:t>第一段台词</w:t></w:r></w:p><w:p><w:r><w:t>第二段&amp;内容</w:t></w:r></w:p></w:body></w:document>',
+      },
+    ]);
+    const result = await readImportedDocument(filePath);
+    assert.equal(result.kind, "word");
+    assert.equal(result.text, "第一段台词\n第二段&内容");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("imports rows and shared strings from Excel XLSX documents", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-xlsx-"));
+  try {
+    const filePath = await createOfficeArchive(root, "xlsx", [
+      {
+        name: "xl/sharedStrings.xml",
+        content:
+          '<sst xmlns="sheet"><si><t>角色</t></si><si><t>台词</t></si><si><t>旁白</t></si><si><t>故事开始了</t></si></sst>',
+      },
+      {
+        name: "xl/worksheets/sheet1.xml",
+        content:
+          '<worksheet xmlns="sheet"><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="B2" t="s"><v>3</v></c></row></sheetData></worksheet>',
+      },
+    ]);
+    const result = await readImportedDocument(filePath);
+    assert.equal(result.kind, "excel");
+    assert.equal(result.text, "角色\t台词\n旁白\t故事开始了");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -1,5 +1,6 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { ToastCard } from "@ai-voice-studio/ui";
 
@@ -10,17 +11,29 @@ const AutoDismissToast = ({
   title,
   description,
   tone,
+  durationMs,
+  action,
 }: {
   id: string;
   title: string;
   description?: string;
   tone: "neutral" | "info" | "success" | "warning" | "danger";
+  durationMs?: number | null;
+  action?: {
+    label: string;
+    to: string;
+  };
 }) => {
   const dismissToast = useStudioStore((state) => state.dismissToast);
+  const navigate = useNavigate();
   useEffect(() => {
-    const timer = window.setTimeout(() => dismissToast(id), 4_200);
+    if (durationMs === null) return;
+    const timer = window.setTimeout(
+      () => dismissToast(id),
+      durationMs ?? 4_200,
+    );
     return () => window.clearTimeout(timer);
-  }, [dismissToast, id]);
+  }, [dismissToast, durationMs, id]);
 
   return (
     <ToastCard
@@ -28,6 +41,15 @@ const AutoDismissToast = ({
       description={description}
       tone={tone}
       onClose={() => dismissToast(id)}
+      actionLabel={action?.label}
+      onAction={
+        action
+          ? () => {
+              dismissToast(id);
+              void navigate(action.to);
+            }
+          : undefined
+      }
     />
   );
 };

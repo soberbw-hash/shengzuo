@@ -5,6 +5,7 @@ import {
   countMeaningfulCharacters,
   createTitleFromText,
   isAddVoiceSampleRequest,
+  isBatchGenerationRequest,
   isCreateVoiceProfileRequest,
   isEngineCommand,
   isExportNamingTemplate,
@@ -15,12 +16,16 @@ import {
   isSmartTextRequest,
   isUpdateSmartApiConfigRequest,
   getModelGenerationCapabilities,
+  getSmartScriptDestination,
+  normalizeGenerationControls,
   isRenameVoiceProfileRequest,
   isRemoveVoiceSampleRequest,
+  isSaveProjectRequest,
   isSelectVoiceSampleRequest,
   LANGUAGE_OPTIONS,
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
+  MODEL_VOICE_MODE_SUPPORT,
   renderExportFileStem,
   takeMeaningfulPrefix,
 } from "../src/index";
@@ -33,7 +38,28 @@ void test("export naming template renders a safe predictable file name", () => {
       modelName: "VoxCPM2",
       createdAt: "2026-08-17T14:26:08",
     }),
-    "新品-介绍_字幕配音_VoxCPM2_2026-08-17_14-26-08",
+    "新品-介绍_长稿配音_VoxCPM2_2026-08-17_14-26-08",
+  );
+  assert.equal(
+    renderExportFileStem("{类型}", {
+      kind: "single",
+      createdAt: "2026-08-17T14:26:08",
+    }),
+    "单段配音",
+  );
+  assert.equal(
+    renderExportFileStem("{类型}", {
+      kind: "subtitles",
+      createdAt: "2026-08-17T14:26:08",
+    }),
+    "长稿配音",
+  );
+  assert.equal(
+    renderExportFileStem("{类型}", {
+      kind: "dialogue",
+      createdAt: "2026-08-17T14:26:08",
+    }),
+    "多人对话",
   );
   assert.equal(isExportNamingTemplate("{项目}_{日期}"), true);
   assert.equal(isExportNamingTemplate("{项目}_{未知内容}"), false);
@@ -61,18 +87,22 @@ void test("model catalog contains three distinct recommended choices", () => {
       [4.8, "表现力推荐"],
     ],
   );
+  assert.deepEqual(
+    MODEL_CATALOG.map((model) => model.usageRestriction),
+    [null, null, "仅限非商业"],
+  );
 });
 
 void test("text helpers ignore whitespace and create a useful short title", () => {
-  assert.equal(countMeaningfulCharacters("大家好\n\n 我是 郑轮"), 7);
+  assert.equal(countMeaningfulCharacters("大家好\n\n 我是 小林"), 7);
   assert.equal(
-    createTitleFromText("  大家好\n我是郑轮，今天介绍系统更新内容"),
-    "大家好我是郑轮，今天介绍",
+    createTitleFromText("  大家好\n我是小林，今天介绍系统更新内容"),
+    "大家好我是小林，今天介绍",
   );
   assert.equal(createTitleFromText(" \n "), "单段配音");
   assert.equal(
-    takeMeaningfulPrefix("大家好\n 我是郑轮，今天开始配音。", 8),
-    "大家好\n 我是郑轮，",
+    takeMeaningfulPrefix("大家好\n 我是小林，今天开始配音。", 8),
+    "大家好\n 我是小林，",
   );
 });
 
@@ -113,13 +143,13 @@ void test("generation controls follow each model's real worker capabilities", ()
   assert.deepEqual(getModelGenerationCapabilities("voxcpm2", "zh"), {
     emotion: false,
     expression: true,
-    presets: ["natural", "longform", "expressive"],
+    presets: ["natural", "longform"],
   });
   assert.deepEqual(
     getModelGenerationCapabilities("fun-cosyvoice3-0.5b", "zh"),
     {
       emotion: false,
-      expression: false,
+      expression: true,
       presets: ["natural", "longform"],
     },
   );
@@ -128,14 +158,57 @@ void test("generation controls follow each model's real worker capabilities", ()
     {
       emotion: false,
       expression: true,
-      presets: ["natural", "longform", "expressive"],
+      presets: ["natural", "longform"],
     },
   );
   assert.deepEqual(getModelGenerationCapabilities("indextts2-5", "zh"), {
     emotion: true,
     expression: true,
-    presets: ["natural", "longform", "expressive"],
+    presets: ["natural", "longform"],
   });
+});
+
+void test("voice source modes stay locked to models that really support them", () => {
+  assert.deepEqual(MODEL_VOICE_MODE_SUPPORT.voxcpm2, [
+    "controlled",
+    "ultimate",
+    "design",
+  ]);
+  assert.deepEqual(MODEL_VOICE_MODE_SUPPORT["fun-cosyvoice3-0.5b"], [
+    "controlled",
+  ]);
+  assert.deepEqual(MODEL_VOICE_MODE_SUPPORT["indextts2-5"], ["controlled"]);
+});
+
+void test("unsupported generation controls are normalized before reaching a worker", () => {
+  assert.deepEqual(
+    normalizeGenerationControls({
+      modelId: "voxcpm2",
+      language: "zh",
+      emotion: "激动",
+      expression: "非常夸张",
+      presetId: "expressive",
+    }),
+    {
+      emotion: "自然",
+      expression: "非常夸张",
+      presetId: "longform",
+    },
+  );
+  assert.deepEqual(
+    normalizeGenerationControls({
+      modelId: "indextts2-5",
+      language: "zh",
+      emotion: "温暖",
+      expression: "温暖柔和，语气亲切",
+      presetId: "natural",
+    }),
+    {
+      emotion: "温暖",
+      expression: "温暖柔和，语气亲切",
+      presetId: "natural",
+    },
+  );
 });
 
 void test("smart API guards allow secure providers and bounded text requests", () => {
@@ -154,8 +227,8 @@ void test("smart API guards allow secure providers and bounded text requests", (
   );
   assert.equal(
     isSmartTextRequest({
-      action: "spoken",
-      text: "请把这段文字改得自然一些。",
+      action: "performance",
+      text: "请分析这段定稿的停顿和情绪。",
       modelId: "voxcpm2",
       language: "zh",
     }),
@@ -163,7 +236,7 @@ void test("smart API guards allow secure providers and bounded text requests", (
   );
   assert.equal(
     isSmartTextRequest({
-      action: "spoken",
+      action: "performance",
       text: `${"文".repeat(20_000)}${" \n".repeat(10_000)}`,
       modelId: "voxcpm2",
       language: "zh",
@@ -188,6 +261,27 @@ void test("smart API guards allow secure providers and bounded text requests", (
   assert.equal(isSmartDialogueScriptRequest({ text: " \n " }), false);
 });
 
+void test("smart script routing sends one speaker to subtitles and multiple speakers to dialogue", () => {
+  assert.equal(
+    getSmartScriptDestination({
+      lines: [
+        { role: "旁白", text: "第一句。" },
+        { role: "旁白", text: "第二句。" },
+      ],
+    }),
+    "subtitles",
+  );
+  assert.equal(
+    getSmartScriptDestination({
+      lines: [
+        { role: "旁白", text: "故事开始。" },
+        { role: "小林", text: "我们出发吧。" },
+      ],
+    }),
+    "dialogue",
+  );
+});
+
 void test("IPC runtime guards reject malformed renderer payloads", () => {
   assert.equal(
     isEngineCommand({
@@ -197,7 +291,7 @@ void test("IPC runtime guards reject malformed renderer payloads", () => {
         title: "试听 30 字",
         modelId: "voxcpm2",
         voiceId: "voice-1234",
-        text: "大家好，我是郑轮。",
+        text: "大家好，我是小林。",
         expression: "自然、清晰",
         language: "zh",
         emotion: "温暖",
@@ -214,11 +308,33 @@ void test("IPC runtime guards reject malformed renderer payloads", () => {
     isEngineCommand({
       type: "generate",
       request: {
+        requestId: "preview-design-1",
+        title: "描述造声试听",
+        modelId: "voxcpm2",
+        voiceId: "",
+        voxMode: "design",
+        voiceDescription: "年轻男声，沉稳清晰，语速适中",
+        text: "欢迎收听今天的节目。",
+        expression: "自然、清晰",
+        language: "zh",
+        emotion: "自然",
+        speed: 1,
+        volume: 100,
+        format: "mp3",
+        preview: true,
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isEngineCommand({
+      type: "generate",
+      request: {
         requestId: "preview-2",
         title: "试听 30 字",
         modelId: "voxcpm2",
         voiceId: "voice-1234",
-        text: "大家好，我是郑轮。",
+        text: "大家好，我是小林。",
         expression: "自然、清晰",
         language: "zh",
         emotion: "自然",
@@ -297,6 +413,14 @@ void test("IPC runtime guards reject malformed renderer payloads", () => {
   assert.equal(
     isCreateVoiceProfileRequest({
       sampleToken: "sample-1",
+      name: "无需逐字稿的声音",
+      referenceText: "",
+    }),
+    true,
+  );
+  assert.equal(
+    isCreateVoiceProfileRequest({
+      sampleToken: "sample-1",
       name: "",
       referenceText: "测试",
     }),
@@ -329,6 +453,150 @@ void test("IPC runtime guards reject malformed renderer payloads", () => {
     isRemoveVoiceSampleRequest({
       voiceId: "voice-1234",
       sampleId: "../sample-abcd-1234",
+    }),
+    false,
+  );
+});
+
+void test("pronunciation rule guards support explicit skip actions and legacy replacements", () => {
+  const request = {
+    requestId: "pronunciation-rules-1",
+    title: "发音规则校验",
+    modelId: "voxcpm2",
+    voiceId: "voice-1234",
+    text: "【画面】欢迎使用 AI。",
+    expression: "自然、清晰",
+    language: "zh",
+    emotion: "自然",
+    speed: 1,
+    volume: 100,
+    format: "mp3",
+  } as const;
+  const legacyReplaceRule = {
+    id: "rule-legacy",
+    source: "AI",
+    replacement: "A I",
+    enabled: true,
+  } as const;
+  const skipRule = {
+    id: "rule-skip",
+    source: "【画面】",
+    replacement: "",
+    enabled: true,
+    action: "skip",
+  } as const;
+
+  assert.equal(
+    isEngineCommand({
+      type: "generate",
+      request: {
+        ...request,
+        pronunciationRules: [legacyReplaceRule, skipRule],
+      },
+    }),
+    true,
+  );
+  assert.equal(
+    isBatchGenerationRequest({
+      requestId: "pronunciation-batch-1",
+      modelId: "fun-cosyvoice3-0.5b",
+      segments: [{ id: "line-1", voiceId: "voice-1234", text: request.text }],
+      language: "zh",
+      emotion: "自然",
+      speed: 1,
+      volume: 100,
+      pauseMs: 260,
+      format: "mp3",
+      title: request.title,
+      kind: "dialogue",
+      pronunciationRules: [skipRule],
+    }),
+    true,
+  );
+  assert.equal(
+    isSaveProjectRequest({
+      title: request.title,
+      kind: "single",
+      modelId: "indextts2-5",
+      language: "zh",
+      emotion: "自然",
+      speed: 1,
+      volume: 100,
+      pauseMs: 0,
+      expression: request.expression,
+      sourceText: request.text,
+      segments: [{ id: "single-1", text: request.text }],
+      pronunciationRules: [skipRule],
+    }),
+    true,
+  );
+
+  for (const invalidRule of [
+    { ...legacyReplaceRule, replacement: "", action: "replace" },
+    { ...legacyReplaceRule, replacement: "" },
+    { ...skipRule, action: "remove" },
+  ]) {
+    assert.equal(
+      isEngineCommand({
+        type: "generate",
+        request: { ...request, pronunciationRules: [invalidRule] },
+      }),
+      false,
+    );
+  }
+});
+
+void test("Vox batch generation keeps an explicit mode and validates design descriptions", () => {
+  const request = {
+    requestId: "dialogue-vox-mode",
+    modelId: "voxcpm2",
+    segments: [
+      {
+        id: "line-1",
+        voiceId: "voice-1234",
+        text: "我们开始吧。",
+      },
+    ],
+    language: "zh",
+    emotion: "自然",
+    speed: 1,
+    volume: 100,
+    pauseMs: 260,
+    format: "mp3",
+    title: "模式传递测试",
+    kind: "dialogue",
+  } as const;
+
+  assert.equal(isBatchGenerationRequest(request), true);
+  assert.equal(
+    isBatchGenerationRequest({ ...request, voxMode: "ultimate" }),
+    true,
+  );
+  assert.equal(
+    isBatchGenerationRequest({
+      ...request,
+      voxMode: "design",
+      voiceDescription: "年轻男声，沉稳清晰，语速适中",
+    }),
+    true,
+  );
+  assert.equal(
+    isBatchGenerationRequest({ ...request, voxMode: "design" }),
+    false,
+  );
+  assert.equal(
+    isBatchGenerationRequest({
+      ...request,
+      voxMode: "controlled",
+      voiceDescription: "这段说明不应出现在克隆模式",
+    }),
+    false,
+  );
+  assert.equal(
+    isBatchGenerationRequest({
+      ...request,
+      modelId: "fun-cosyvoice3-0.5b",
+      voxMode: "ultimate",
     }),
     false,
   );

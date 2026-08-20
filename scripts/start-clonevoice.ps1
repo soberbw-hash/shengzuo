@@ -117,6 +117,52 @@ function Open-Preview {
   Start-Process -FilePath $previewUrl
 }
 
+function Show-RunningDesktopApp {
+  $runningApp = Get-Process -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.MainWindowHandle -ne 0 -and
+      $_.MainWindowTitle -eq '声作'
+    } |
+    Select-Object -First 1
+
+  if (-not $runningApp) {
+    return $false
+  }
+
+  try {
+    if (-not ('ShengZuo.WindowActivation' -as [type])) {
+      Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+
+namespace ShengZuo {
+  public static class WindowActivation {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr hWnd);
+  }
+}
+'@
+    }
+
+    [void][ShengZuo.WindowActivation]::ShowWindowAsync(
+      $runningApp.MainWindowHandle,
+      9
+    )
+    [void][ShengZuo.WindowActivation]::SetForegroundWindow(
+      $runningApp.MainWindowHandle
+    )
+    return $true
+  }
+  catch {
+    return $true
+  }
+}
+
 function Start-PackagedApp {
   try {
     $process = Start-Process -FilePath $packagedExe -WorkingDirectory (Split-Path $packagedExe -Parent) -PassThru
@@ -126,7 +172,7 @@ function Start-PackagedApp {
       $process.Refresh()
 
       if ($process.HasExited) {
-        return $false
+        return Show-RunningDesktopApp
       }
 
       if ($process.MainWindowHandle -ne 0) {
@@ -165,7 +211,7 @@ function Start-SourceDesktopApp {
       $process.Refresh()
 
       if ($process.HasExited) {
-        return $false
+        return Show-RunningDesktopApp
       }
 
       if ($process.MainWindowHandle -ne 0) {
@@ -271,6 +317,10 @@ if ($CheckOnly) {
   exit 1
 }
 
+if (-not $PreviewOnly -and (Show-RunningDesktopApp)) {
+  exit 0
+}
+
 if (-not $PreviewOnly -and $sourceBuildIsNewer -and (Start-SourceDesktopApp)) {
   exit 0
 }
@@ -291,7 +341,7 @@ if ($PreviewOnly -and $previewReady) {
 if (-not $runtime) {
   Show-FriendlyMessage `
     -Kind Error `
-    -Message "这台电脑暂时无法启动声作。`n`n回家后请先安装 Node.js 22 以上版本和 pnpm，或直接运行已打包的 ShengZuo.exe。"
+    -Message "这台电脑暂时无法启动声作。`n`n从源码运行需要 Node.js 22 以上版本和 pnpm；使用便携版时，请完整解压后双击“启动.cmd”。"
   exit 1
 }
 
@@ -301,5 +351,5 @@ if ($PreviewOnly -and (Start-LocalPreview -Runtime $runtime)) {
 
 Show-FriendlyMessage `
   -Kind Error `
-  -Message "声作桌面程序没有成功启动。`n`n请先运行 pnpm install 和 pnpm build；如只需查看界面，可在 PowerShell 中运行 scripts\start-clonevoice.ps1 -PreviewOnly。"
+  -Message "声作没有成功打开。`n`n请先确认项目文件完整，再打开软件里的“设置 → 一键检查修复”。如果仍然打不开，请导出诊断包查看具体原因。"
 exit 1

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   applyTextReplacementRules,
+  createTextReplacementPreview,
   parseDialogueScript,
   parseSubtitleDocument,
   speechPauseAfter,
@@ -26,8 +27,8 @@ void test("splits plain text on punctuation and line breaks", () => {
 });
 
 void test("keeps a short speech in one natural chunk", () => {
-  assert.deepEqual(splitTextForSpeech("大家好，我是郑轮。今天开始录音。"), [
-    "大家好，我是郑轮。今天开始录音。",
+  assert.deepEqual(splitTextForSpeech("大家好，我是小林。今天开始录音。"), [
+    "大家好，我是小林。今天开始录音。",
   ]);
 });
 
@@ -65,6 +66,61 @@ void test("pronunciation replacements are literal and longest-first", () => {
     ]),
     "C plus plus",
   );
+});
+
+void test("skip rules remove literal text and stay longest-first", () => {
+  assert.equal(
+    applyTextReplacementRules("【旁白】旁白：AI助手。", [
+      { source: "旁白", replacement: "", action: "skip" },
+      { source: "【旁白】", replacement: "", action: "skip" },
+      { source: "AI", replacement: "A I", action: "replace" },
+    ]),
+    "：A I助手。",
+  );
+});
+
+void test("skip and replace rules can be mixed without applying disabled rules", () => {
+  assert.equal(
+    applyTextReplacementRules("保留【音效】删除【画面】和AI", [
+      {
+        source: "【音效】",
+        replacement: "",
+        action: "skip",
+        enabled: false,
+      },
+      { source: "【画面】", replacement: "", action: "skip" },
+      { source: "AI", replacement: "人工智能" },
+      { source: "删除", replacement: "", action: "replace" },
+    ]),
+    "保留【音效】删除和人工智能",
+  );
+});
+
+void test("skip rules may remove all matched content", () => {
+  assert.equal(
+    applyTextReplacementRules("【不朗读】", [
+      { source: "【不朗读】", replacement: "", action: "skip" },
+    ]),
+    "",
+  );
+});
+
+void test("spoken preview maps skipped and replaced text to the original range", () => {
+  assert.deepEqual(
+    createTextReplacementPreview(
+      "（片头）AI助手继续",
+      [
+        { source: "（片头）", replacement: "", action: "skip" },
+        { source: "AI", replacement: "A I" },
+      ],
+      4,
+    ),
+    { text: "A I助手", sourceEnd: 8 },
+  );
+  assert.deepEqual(createTextReplacementPreview("文字", [], 0), {
+    text: "",
+    sourceEnd: 0,
+  });
 });
 
 void test("semantic pauses follow punctuation without becoming excessive", () => {

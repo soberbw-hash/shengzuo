@@ -13,9 +13,11 @@ export const ProgressBar = ({
   return (
     <div className={cn("progress-stack", compact && "progress-stack--compact")}>
       {label ? (
-        <div className="flex items-center justify-between gap-4 text-[12px] text-[#607188]">
-          <span className="truncate">{label}</span>
-          <span className="font-semibold text-[#2f6fcc]">
+        <div className="flex items-start justify-between gap-4 text-[12px] text-[#607188]">
+          <span className="min-w-0 flex-1 break-words leading-4" title={label}>
+            {label}
+          </span>
+          <span className="shrink-0 font-semibold leading-4 text-[#2f6fcc]">
             {Math.round(normalized)}%
           </span>
         </div>

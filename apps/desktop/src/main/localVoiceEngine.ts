@@ -36,6 +36,7 @@ import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
   getModelGenerationCapabilities,
+  normalizeGenerationControls,
   type AudioResult,
   type BatchGenerationRequest,
   type DownloadSource,
@@ -48,6 +49,8 @@ import {
   type ModelStorageInfo,
   type ModelId,
 } from "@ai-voice-studio/shared-types";
+
+import { hasSpeakableText, prepareReadingSegments } from "./readingRules";
 
 import {
   assessGeneratedAudio,
@@ -155,11 +158,11 @@ const isProgressEvent = (value: unknown): value is ProgressEvent =>
   typeof value.message === "string";
 
 const runtimeProgressMessages: Record<string, string> = {
-  PYTHON_DOWNLOAD: "正在准备独立 Python 运行环境…",
-  PYTHON_VERIFIED: "Python 安装包 SHA-256 校验完成。",
-  TORCH_INSTALL: "正在安装 GPU 推理组件…",
-  ENGINE_DEPENDENCIES: "正在安装模型运行组件与本地 FFmpeg…",
-  RUNTIME_READY: "独立运行环境、CUDA 组件与本地 FFmpeg 已安装。",
+  PYTHON_DOWNLOAD: "正在下载运行组件…",
+  PYTHON_VERIFIED: "运行组件检查完成。",
+  TORCH_INSTALL: "正在准备显卡加速…",
+  ENGINE_DEPENDENCIES: "正在准备模型组件…",
+  RUNTIME_READY: "模型需要的组件已准备好。",
 };
 
 const getFreeLoopbackPort = async (): Promise<number> =>
@@ -186,8 +189,15 @@ const friendlyGenerationError = (code?: string): string => {
       return "录音需要在 3 到 60 秒之间，请换一段更清晰的单人说话录音。";
     case "VOICE_SAMPLE_NOT_FOUND":
       return "没有找到这条声音的录音，请重新克隆声音。";
+    case "VOICE_DESCRIPTION_REQUIRED":
+    case "INVALID_VOICE_DESCRIPTION":
+      return "请用一句话描述想要的声音，例如年龄、音色、情绪和语速。";
+    case "REFERENCE_TEXT_MISMATCH":
+      return "录音原文与录音时长明显不匹配，不能使用极致克隆。请填写完整逐字稿，或改用可控克隆。";
+    case "INVALID_VOX_MODE":
+      return "当前 VoxCPM2 声音来源无效，请重新选择后再试。";
     case "MODEL_NOT_INSTALLED":
-      return "模型文件不完整，请到模型目录重新准备引擎。";
+      return "模型文件不完整，请到“本地模型”重新准备。";
     case "UNSUPPORTED_LANGUAGE":
       return "当前模型不支持所选语言，请更换语言后重试。";
     case "MODEL_SHA256_MISMATCH":
@@ -195,15 +205,68 @@ const friendlyGenerationError = (code?: string): string => {
       return "下载的模型文件不完整，请重新下载当前模型。";
     case "WORKER_HANDSHAKE_FAILED":
       return "模型没有正常启动，请重试。";
+    case "WORKER_CONNECTION_LOST":
+    case "WORKER_ERROR":
+    case "INVALID_WORKER_RESPONSE":
+      return "模型运行意外中断，软件已经恢复运行状态。点击重试会从未完成的句子继续。";
+    case "WORKER_TIMEOUT":
+      return "模型长时间没有响应，软件已经停止这次生成。点击重试会从未完成的句子继续。";
+    case "GPU_MEMORY_LOW":
+      return "显卡内存不足。请关闭其他占用显卡的程序后重试，已经生成的句子不会重做。";
+    case "GPU_RUNTIME_ERROR":
+      return "显卡加速临时异常，软件已经重启模型。请再试一次。";
+    case "AUDIO_CONVERSION_FAILED":
+      return "录音格式转换失败，请换成 WAV、MP3、M4A 或 FLAC 后重试。";
+    case "EMPTY_GENERATION":
+      return "模型这次没有生成有效音频，请重试；仍然失败时请换一段更清晰的参考录音。";
     case "SYSTEM_MEMORY_LOW":
       return "没有兼容显卡，且系统内存不足 16GB；当前电脑不适合运行这些本地模型。";
     case "AUDIO_QUALITY_CHECK_FAILED":
       return "音频出现漏读、长时间静音或语速异常，自动重做后仍未解决。已经生成的句子会保留，可以直接重试。";
     case "PRONUNCIATION_EXPANSION_LIMIT":
-      return "发音词典把文字扩展得过长，请缩短“读作”内容后重试。";
+      return "朗读规则把文字改得过长，请缩短“改读”内容后重试。";
+    case "PRONUNCIATION_SKIPPED_ALL":
+      return "这段内容全部被设为不朗读，请保留一些需要配音的文字。";
     default:
-      return "这次没有生成成功。请检查录音和文本后重试；若显存不足，请关闭其他占用显卡的程序。";
+      return "模型没有完成这次生成，运行状态已经重置。请点击重试；已经生成的句子不会重做。";
   }
+};
+
+const generationErrorCode = (error: unknown): string => {
+  const raw = error instanceof Error ? error.message.trim() : "";
+  if (/^[A-Z][A-Z0-9_]{2,79}$/u.test(raw)) return raw;
+  if (/(声音|录音).*(损坏|不存在|找不到|移动)/u.test(raw))
+    return "VOICE_SAMPLE_NOT_FOUND";
+  if (/out of memory|memory allocation|显存/iu.test(raw))
+    return "GPU_MEMORY_LOW";
+  if (/cuda|cudnn|cublas|device-side/iu.test(raw)) return "GPU_RUNTIME_ERROR";
+  if (/ffmpeg|audio.*convert|encoding/iu.test(raw))
+    return "AUDIO_CONVERSION_FAILED";
+  if (/fetch failed|econnreset|econnrefused|socket/iu.test(raw))
+    return "WORKER_CONNECTION_LOST";
+  return "WORKER_ERROR";
+};
+
+const recoverableWorkerErrors = new Set([
+  "GPU_MEMORY_LOW",
+  "GPU_RUNTIME_ERROR",
+  "INVALID_WORKER_RESPONSE",
+  "WORKER_CONNECTION_LOST",
+  "WORKER_ERROR",
+  "WORKER_TIMEOUT",
+]);
+
+const voicePreflightMessage = (error: unknown): string => {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.includes("损坏") ||
+    message.includes("不存在") ||
+    message.includes("找不到") ||
+    message.includes("重新")
+  ) {
+    return message.slice(0, 160);
+  }
+  return "没有找到这条声音的参考录音。请到“我的声音”重新选择或添加录音。";
 };
 
 const initialSnapshot = (
@@ -297,15 +360,19 @@ type SegmentedGenerationRequest = Omit<BatchGenerationRequest, "kind"> & {
   kind: NonNullable<AudioResult["kind"]>;
 };
 
+interface GenerationVoiceSource {
+  audioPath?: string;
+  referenceText: string;
+  voiceName: string;
+}
+
 const speechTextSignature = (value: string): string =>
   value.replace(/\s/gu, "");
 
 const qualityModeFor = (
   request: Pick<GenerationRequest, "presetId" | "text">,
 ): GenerationQualityMode =>
-  request.presetId === "longform" ||
-  request.presetId === "expressive" ||
-  speechTextSignature(request.text).length > 300
+  request.presetId === "longform" || request.presetId === "expressive"
     ? "careful"
     : "standard";
 
@@ -618,7 +685,7 @@ class ModelEngine {
     this.updateSnapshot({
       status: "downloading",
       progress: 2,
-      message: `正在准备 ${this.config.name} 的独立运行环境…`,
+      message: `正在准备 ${this.config.name} 需要的组件…`,
       canRetry: false,
       errorCode: undefined,
       result: undefined,
@@ -1028,6 +1095,10 @@ class ModelEngine {
   }
 
   private async generateSingle(request: GenerationRequest): Promise<void> {
+    request = {
+      ...request,
+      ...normalizeGenerationControls(request),
+    };
     const errors = validateGenerationRequest(request);
     if (errors.length > 0) {
       this.updateSnapshot({
@@ -1038,10 +1109,55 @@ class ModelEngine {
       });
       return;
     }
+    const isVoxVoiceDesign =
+      request.modelId === "voxcpm2" && request.voxMode === "design";
+    if (request.performanceSegments?.length && !isVoxVoiceDesign) {
+      if (
+        speechTextSignature(
+          request.performanceSegments.map((segment) => segment.text).join(""),
+        ) !== speechTextSignature(request.text)
+      ) {
+        this.updateSnapshot({
+          status: "generation-failed",
+          message: "配音标注已经和当前原稿不一致，请重新进行智能处理。",
+          canRetry: true,
+          errorCode: "PERFORMANCE_SEGMENT_INTEGRITY",
+        });
+        return;
+      }
+      await this.generateMany({
+        requestId: request.requestId,
+        modelId: request.modelId,
+        segments: request.performanceSegments,
+        language: request.language,
+        emotion: request.emotion,
+        speed: request.speed,
+        volume: request.volume,
+        pauseMs: 80,
+        format: request.format,
+        title: request.title,
+        kind: "single",
+        projectId: request.projectId,
+        presetId: request.presetId,
+        pronunciationRules: request.pronunciationRules,
+        voxMode: request.voxMode,
+        voiceDescription: request.voiceDescription,
+      });
+      return;
+    }
     const preparedText = applyTextReplacementRules(
       request.text,
       request.pronunciationRules,
     );
+    if (!hasSpeakableText(preparedText)) {
+      this.updateSnapshot({
+        status: "generation-failed",
+        message: friendlyGenerationError("PRONUNCIATION_SKIPPED_ALL"),
+        canRetry: true,
+        errorCode: "PRONUNCIATION_SKIPPED_ALL",
+      });
+      return;
+    }
     if (speechTextSignature(preparedText).length > 4_000) {
       this.updateSnapshot({
         status: "generation-failed",
@@ -1069,7 +1185,7 @@ class ModelEngine {
       });
       return;
     }
-    if (speechSegments.length > 1) {
+    if (speechSegments.length > 1 && !isVoxVoiceDesign) {
       await this.generateMany({
         requestId: request.requestId,
         modelId: request.modelId,
@@ -1088,8 +1204,11 @@ class ModelEngine {
         title: request.title,
         kind: "single",
         projectId: request.projectId,
+        sourceText: request.text,
         presetId: request.presetId,
         pronunciationRules: [],
+        voxMode: request.voxMode,
+        voiceDescription: request.voiceDescription,
       });
       return;
     }
@@ -1109,26 +1228,25 @@ class ModelEngine {
         canRetry: false,
         errorCode: undefined,
       });
-      const worker = await this.ensureWorker();
-      const loaded = await this.workerRequest(
-        worker,
-        "/load",
-        {},
-        60 * 60 * 1_000,
-      );
-      if (!loaded.ok) throw new Error(loaded.code ?? "WORKER_LOAD_FAILED");
-      const voice = await this.voiceStore.getGenerationSource(request.voiceId);
+      const voice: GenerationVoiceSource = isVoxVoiceDesign
+        ? {
+            referenceText: "",
+            voiceName: "描述造声",
+          }
+        : await this.voiceStore.getGenerationSource(request.voiceId);
+      const worker = await this.loadReadyWorker();
       this.updateSnapshot({
         status: "generating",
         progress: 35,
         message: `正在用 ${this.config.name} 生成配音，请稍候…`,
       });
-      const generated = await this.generateCheckedSegment(
+      const recovered = await this.generateCheckedSegmentWithRecovery(
         worker,
         jobId,
         { ...request, text: preparedText, pronunciationRules: [] },
         voice,
       );
+      const generated = recovered.generated;
       if (
         request.preview &&
         this.previewResultId &&
@@ -1150,6 +1268,14 @@ class ModelEngine {
         kind: "single",
         preview: request.preview,
         projectId: request.projectId,
+        voiceNames: [voice.voiceName],
+        language: request.language,
+        emotion: request.emotion,
+        expression: request.expression,
+        presetId: request.presetId ?? "natural",
+        sourceText: request.text,
+        voxMode: request.voxMode,
+        voiceDescription: request.voiceDescription,
         quality: {
           status: generated.assessment.issues.length ? "warning" : "passed",
           checkedSegments: 1,
@@ -1171,6 +1297,7 @@ class ModelEngine {
         canRetry: false,
       });
     } catch (error) {
+      await this.releaseWorker();
       this.handleGenerationFailure(error);
     } finally {
       this.generationAbort = undefined;
@@ -1180,6 +1307,80 @@ class ModelEngine {
   private async generateMany(
     request: SegmentedGenerationRequest,
   ): Promise<void> {
+    const voxMode =
+      request.modelId === "voxcpm2"
+        ? (request.voxMode ?? "controlled")
+        : undefined;
+    const normalizedDefaults = normalizeGenerationControls({
+      modelId: request.modelId,
+      language: request.language,
+      emotion: request.emotion,
+      expression: "自然、清晰",
+      presetId: request.presetId,
+    });
+    request = {
+      ...request,
+      emotion: normalizedDefaults.emotion,
+      presetId: normalizedDefaults.presetId,
+      voxMode,
+      voiceDescription:
+        voxMode === "design" ? request.voiceDescription : undefined,
+      segments: request.segments.map((segment) => {
+        const normalizedSegment = normalizeGenerationControls({
+          modelId: request.modelId,
+          language: request.language,
+          emotion: segment.emotion ?? request.emotion,
+          expression: segment.expression ?? "自然、清晰",
+          presetId: request.presetId,
+        });
+        return {
+          ...segment,
+          expression: normalizedSegment.expression,
+          emotion: normalizedSegment.emotion,
+        };
+      }),
+    };
+    const originalSourceText =
+      request.sourceText ??
+      request.segments
+        .map((segment) =>
+          segment.label ? `${segment.label}：${segment.text}` : segment.text,
+        )
+        .join("\n");
+    const prepared = prepareReadingSegments(
+      request.segments,
+      request.pronunciationRules,
+    );
+    const preparedSegments = prepared.segments;
+    const skippedSegmentCount = prepared.skippedCount;
+    if (
+      preparedSegments.some(
+        (segment) => speechTextSignature(segment.text).length > 4_000,
+      )
+    ) {
+      this.updateSnapshot({
+        status: "generation-failed",
+        message: friendlyGenerationError("PRONUNCIATION_EXPANSION_LIMIT"),
+        canRetry: true,
+        errorCode: "PRONUNCIATION_EXPANSION_LIMIT",
+      });
+      return;
+    }
+    if (!preparedSegments.length) {
+      this.updateSnapshot({
+        status: "generation-failed",
+        message: friendlyGenerationError("PRONUNCIATION_SKIPPED_ALL"),
+        canRetry: true,
+        errorCode: "PRONUNCIATION_SKIPPED_ALL",
+      });
+      return;
+    }
+    request = {
+      ...request,
+      segments: preparedSegments,
+      pronunciationRules: [],
+      sourceText: originalSourceText,
+    };
     if (!this.isInstalled()) {
       this.install();
       return;
@@ -1205,31 +1406,45 @@ class ModelEngine {
         canRetry: false,
         errorCode: undefined,
       });
-      const worker = await this.ensureWorker();
-      const loaded = await this.workerRequest(
-        worker,
-        "/load",
-        {},
-        60 * 60 * 1_000,
+      const voiceIds = [
+        ...new Set(request.segments.map((segment) => segment.voiceId)),
+      ];
+      const voiceSources = new Map(
+        request.modelId === "voxcpm2" && request.voxMode === "design"
+          ? voiceIds.map(
+              (voiceId) =>
+                [
+                  voiceId,
+                  {
+                    referenceText: "",
+                    voiceName: "描述造声",
+                  } satisfies GenerationVoiceSource,
+                ] as const,
+            )
+          : await Promise.all(
+              voiceIds.map(
+                async (voiceId) =>
+                  [
+                    voiceId,
+                    await this.voiceStore.getGenerationSource(voiceId),
+                  ] as const,
+              ),
+            ),
       );
-      if (!loaded.ok) throw new Error(loaded.code ?? "WORKER_LOAD_FAILED");
+      let worker = await this.loadReadyWorker();
       let durationSeconds = 0;
       for (const [index, segment] of request.segments.entries()) {
         const cacheId = segment.id;
         const segmentId = `${cachePrefix}-part-${batchFingerprint(segment.id).slice(0, 16)}`;
         segmentIds.push(segmentId);
-        const preparedText = applyTextReplacementRules(
-          segment.text,
-          request.pronunciationRules,
-        );
-        if (speechTextSignature(preparedText).length > 4_000) {
-          throw new Error("PRONUNCIATION_EXPANSION_LIMIT");
-        }
+        const preparedText = segment.text;
         const fingerprint = batchFingerprint({
           modelId: request.modelId,
           voiceId: segment.voiceId,
           text: preparedText,
           expression: segment.expression ?? "自然、清晰",
+          voxMode: request.voxMode,
+          voiceDescription: request.voiceDescription,
           language: request.language,
           emotion: segment.emotion ?? request.emotion,
           speed: segment.speed ?? request.speed,
@@ -1268,15 +1483,14 @@ class ModelEngine {
         await rm(path.join(this.outputRoot, `${segmentId}.mp3`), {
           force: true,
         });
-        const voice = await this.voiceStore.getGenerationSource(
-          segment.voiceId,
-        );
+        const voice = voiceSources.get(segment.voiceId);
+        if (!voice) throw new Error("VOICE_SAMPLE_NOT_FOUND");
         this.updateSnapshot({
           status: "generating",
           progress: 15 + Math.round((index / request.segments.length) * 70),
           message: `正在生成第 ${index + 1} / ${request.segments.length} 句…`,
         });
-        const generated = await this.generateCheckedSegment(
+        const recovered = await this.generateCheckedSegmentWithRecovery(
           worker,
           segmentId,
           {
@@ -1293,10 +1507,14 @@ class ModelEngine {
             format: request.format,
             presetId: request.presetId,
             pronunciationRules: [],
+            voxMode: request.voxMode,
+            voiceDescription: request.voiceDescription,
           },
           voice,
           paceBaseline,
         );
+        worker = recovered.worker;
+        const generated = recovered.generated;
         checkedSegments += 1;
         if (generated.retried) retriedSegments += 1;
         if (generated.assessment.issues.length) warningSegments += 1;
@@ -1325,7 +1543,11 @@ class ModelEngine {
         request.kind === "single"
           ? request.segments
               .slice(0, -1)
-              .map((segment) => speechPauseAfter(segment.text, request.pauseMs))
+              .map(
+                (segment) =>
+                  segment.pauseAfterMs ??
+                  speechPauseAfter(segment.text, request.pauseMs),
+              )
           : undefined;
       await this.mergeSegments(segmentIds, jobId, request.pauseMs, pausesMs);
       durationSeconds +=
@@ -1341,15 +1563,29 @@ class ModelEngine {
         title: request.title,
         kind: request.kind,
         projectId: request.projectId,
+        voiceNames: [
+          ...new Set(
+            [...voiceSources.values()].map((voice) => voice.voiceName),
+          ),
+        ],
+        language: request.language,
+        emotion: request.emotion,
+        expression: request.segments[0]?.expression ?? "自然、清晰",
+        presetId: request.presetId ?? "natural",
+        sourceText: request.sourceText ?? originalSourceText,
+        voxMode: request.voxMode,
+        voiceDescription: request.voiceDescription,
         quality: {
           status: warningSegments ? "warning" : "passed",
           checkedSegments,
           retriedSegments,
           note: warningSegments
-            ? `${warningSegments} 段仍有提醒，建议导出前试听。`
+            ? `${skippedSegmentCount ? `已跳过 ${skippedSegmentCount} 句；` : ""}${warningSegments} 段仍有提醒，建议导出前试听。`
             : retriedSegments
-              ? `已自动重做 ${retriedSegments} 段，检查通过。`
-              : "已完成逐段音量、静音和语速检查。",
+              ? `${skippedSegmentCount ? `已跳过 ${skippedSegmentCount} 句；` : ""}已自动重做 ${retriedSegments} 段，检查通过。`
+              : skippedSegmentCount
+                ? `已按朗读规则跳过 ${skippedSegmentCount} 句，其余音频检查通过。`
+                : "已完成逐段音量、静音和语速检查。",
         },
       };
       await this.recordResult(result);
@@ -1371,6 +1607,7 @@ class ModelEngine {
         canRetry: false,
       });
     } catch (error) {
+      await this.releaseWorker();
       this.handleGenerationFailure(
         error,
         completedSegments > 0
@@ -1386,7 +1623,7 @@ class ModelEngine {
     worker: WorkerConnection,
     jobId: string,
     request: GenerationRequest,
-    voice: { audioPath: string; referenceText: string },
+    voice: GenerationVoiceSource,
   ): Promise<{ durationSeconds: number }> {
     const capabilities = getModelGenerationCapabilities(
       request.modelId,
@@ -1405,6 +1642,8 @@ class ModelEngine {
         volume: request.volume,
         referenceAudio: voice.audioPath,
         referenceText: voice.referenceText,
+        voxMode: request.voxMode,
+        voiceDescription: request.voiceDescription,
       },
       2 * 60 * 60 * 1_000,
       this.generationAbort?.signal,
@@ -1419,11 +1658,66 @@ class ModelEngine {
     return { durationSeconds: generated.durationSeconds };
   }
 
+  private async loadReadyWorker(): Promise<WorkerConnection> {
+    const worker = await this.ensureWorker();
+    const loaded = await this.workerRequest(
+      worker,
+      "/load",
+      {},
+      60 * 60 * 1_000,
+    );
+    if (!loaded.ok) throw new Error(loaded.code ?? "WORKER_LOAD_FAILED");
+    return worker;
+  }
+
+  private async generateCheckedSegmentWithRecovery(
+    worker: WorkerConnection,
+    jobId: string,
+    request: GenerationRequest,
+    voice: GenerationVoiceSource,
+    baselineSecondsPerUnit?: number,
+  ): Promise<{ generated: CheckedGeneration; worker: WorkerConnection }> {
+    try {
+      return {
+        generated: await this.generateCheckedSegment(
+          worker,
+          jobId,
+          request,
+          voice,
+          baselineSecondsPerUnit,
+        ),
+        worker,
+      };
+    } catch (error) {
+      const code = generationErrorCode(error);
+      if (!recoverableWorkerErrors.has(code)) throw error;
+      this.updateSnapshot({
+        status: "loading",
+        progress: Math.max(8, this.snapshot.progress),
+        message: "模型刚才中断，正在自动重启并重试这一句…",
+        canRetry: false,
+        errorCode: code,
+      });
+      await this.releaseWorker();
+      const restarted = await this.loadReadyWorker();
+      return {
+        generated: await this.generateCheckedSegment(
+          restarted,
+          jobId,
+          request,
+          voice,
+          baselineSecondsPerUnit,
+        ),
+        worker: restarted,
+      };
+    }
+  }
+
   private async generateCheckedSegment(
     worker: WorkerConnection,
     jobId: string,
     request: GenerationRequest,
-    voice: { audioPath: string; referenceText: string },
+    voice: GenerationVoiceSource,
     baselineSecondsPerUnit?: number,
   ): Promise<CheckedGeneration> {
     const mode = qualityModeFor(request);
@@ -1436,7 +1730,7 @@ class ModelEngine {
       baselineSecondsPerUnit,
     );
     let retried = false;
-    const retryCount = request.preview ? 0 : mode === "careful" ? 2 : 1;
+    const retryCount = request.preview ? 1 : mode === "careful" ? 2 : 1;
 
     for (
       let attempt = 1;
@@ -1534,14 +1828,14 @@ class ModelEngine {
 
   private handleGenerationFailure(error: unknown, detail?: string): void {
     if (this.snapshot.status === "stopped") return;
-    const code =
-      error instanceof Error ? error.message.slice(0, 80) : undefined;
+    const code = generationErrorCode(error);
+    const cause = friendlyGenerationError(code);
     this.updateSnapshot({
       status: "generation-failed",
-      progress: 0,
-      message: detail ?? friendlyGenerationError(code),
+      progress: detail ? this.snapshot.progress : 0,
+      message: detail ? `${cause} ${detail}` : cause,
       canRetry: true,
-      errorCode: code ?? "GENERATION_FAILED",
+      errorCode: code,
     });
   }
 
@@ -1689,7 +1983,7 @@ class ModelEngine {
     }
     workerArgs.push(
       "--voice-root",
-      path.join(app.getPath("userData"), "voices"),
+      this.voiceStore.getRootPath(),
       "--output-root",
       this.outputRoot,
     );
@@ -1760,16 +2054,23 @@ class ModelEngine {
     const signal = parentSignal
       ? AbortSignal.any([parentSignal, timeout])
       : timeout;
-    const response = await fetch(`http://127.0.0.1:${worker.port}${route}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${worker.sessionToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal,
-    });
-    const value: unknown = await response.json();
+    let response: Response;
+    try {
+      response = await fetch(`http://127.0.0.1:${worker.port}${route}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${worker.sessionToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal,
+      });
+    } catch {
+      if (parentSignal?.aborted) throw new Error("GENERATION_STOPPED");
+      if (timeout.aborted) throw new Error("WORKER_TIMEOUT");
+      throw new Error("WORKER_CONNECTION_LOST");
+    }
+    const value: unknown = await response.json().catch(() => undefined);
     if (typeof value !== "object" || value === null || !("ok" in value)) {
       throw new Error("INVALID_WORKER_RESPONSE");
     }
@@ -1850,14 +2151,26 @@ export class LocalVoiceEngine {
 
   async enqueueTask(request: EnqueueTaskRequest): Promise<GenerationTask> {
     await this.ensureTasksLoaded();
+    await this.assertTaskCanStart(request);
     const id = `task-${randomUUID()}`;
     const now = new Date().toISOString();
+    const controls = normalizeGenerationControls({
+      modelId: request.request.modelId,
+      language: request.request.language,
+      emotion: request.request.emotion,
+      expression:
+        request.type === "generate"
+          ? request.request.expression
+          : (request.request.segments[0]?.expression ?? "自然、清晰"),
+      presetId: request.request.presetId,
+    });
     const command: EnqueueTaskRequest =
       request.type === "generate"
         ? {
             ...request,
             request: {
               ...request.request,
+              ...controls,
               requestId: id,
               projectId: request.projectId ?? request.request.projectId,
             },
@@ -1866,6 +2179,18 @@ export class LocalVoiceEngine {
             ...request,
             request: {
               ...request.request,
+              emotion: controls.emotion,
+              presetId: controls.presetId,
+              segments: request.request.segments.map((segment) => ({
+                ...segment,
+                ...normalizeGenerationControls({
+                  modelId: request.request.modelId,
+                  language: request.request.language,
+                  emotion: segment.emotion ?? request.request.emotion,
+                  expression: segment.expression ?? "自然、清晰",
+                  presetId: request.request.presetId,
+                }),
+              })),
               requestId: id,
               projectId: request.projectId ?? request.request.projectId,
             },
@@ -1883,6 +2208,10 @@ export class LocalVoiceEngine {
       currentSegment: 0,
       totalSegments,
       projectId: request.projectId,
+      emotion: command.request.emotion,
+      presetId: command.request.presetId ?? "natural",
+      preview:
+        command.type === "generate" ? Boolean(command.request.preview) : false,
       createdAt: now,
       updatedAt: now,
       command,
@@ -1899,11 +2228,13 @@ export class LocalVoiceEngine {
     const task = this.requireTask(taskId);
     if (task.status === "running" || task.status === "queued")
       return this.publicTask(task);
+    await this.assertTaskCanStart(task.command);
     Object.assign(task, {
       status: "queued" as const,
       progress: task.currentSegment > 0 ? task.progress : 0,
       message: "已重新排队；已经生成的句子不会重做。",
       resultId: undefined,
+      errorCode: undefined,
       updatedAt: new Date().toISOString(),
     });
     await this.saveTasks();
@@ -1927,6 +2258,17 @@ export class LocalVoiceEngine {
       await this.requireEngine(task.modelId).cancel(task.id);
     }
     return this.publicTask(task);
+  }
+
+  async removeTask(taskId: string): Promise<boolean> {
+    await this.ensureTasksLoaded();
+    const task = this.requireTask(taskId);
+    if (task.status === "queued" || task.status === "running") {
+      throw new Error("任务还在处理中，请先取消再移除。");
+    }
+    this.tasks = this.tasks.filter((item) => item.id !== taskId);
+    await this.saveTasks();
+    return true;
   }
 
   getDownloadSource(): DownloadSource {
@@ -1983,7 +2325,7 @@ export class LocalVoiceEngine {
   }
 
   async command(command: EngineCommand): Promise<EngineSnapshot> {
-    if (this.disposed) throw new Error("本地引擎已关闭。");
+    if (this.disposed) throw new Error("本地生成服务已关闭。");
     if (this.libraryChanging) throw new Error("模型文件正在迁移，请稍候。");
     if (command.type === "set-mock-state") {
       throw new Error("正式引擎不接受测试状态命令。");
@@ -2099,6 +2441,48 @@ export class LocalVoiceEngine {
     return task;
   }
 
+  private async assertTaskCanStart(request: EnqueueTaskRequest): Promise<void> {
+    const model = this.requireEngine(request.request.modelId);
+    const status = model.refreshInstallationState().status;
+    if (
+      ["not-installed", "download-paused", "download-failed"].includes(status)
+    ) {
+      throw new Error("当前模型还没有安装完整，请先到“本地模型”完成下载。");
+    }
+    if (["downloading", "installing"].includes(status)) {
+      throw new Error("当前模型还在下载或安装，请完成后再生成。");
+    }
+
+    if (
+      request.request.modelId === "voxcpm2" &&
+      request.request.voxMode === "design"
+    ) {
+      return;
+    }
+
+    const voiceIds =
+      request.type === "generate"
+        ? request.request.performanceSegments?.length
+          ? request.request.performanceSegments.map(
+              (segment) => segment.voiceId,
+            )
+          : [request.request.voiceId]
+        : request.request.segments.map((segment) => segment.voiceId);
+    const uniqueVoiceIds = [...new Set(voiceIds.filter(Boolean))];
+    if (!uniqueVoiceIds.length) {
+      throw new Error("还没有选择声音，请先到“我的声音”添加或选择声音。");
+    }
+    try {
+      await Promise.all(
+        uniqueVoiceIds.map((voiceId) =>
+          this.voiceStore.getGenerationSource(voiceId),
+        ),
+      );
+    } catch (error) {
+      throw new Error(voicePreflightMessage(error));
+    }
+  }
+
   private publicTask(task: StoredGenerationTask): GenerationTask {
     const value = structuredClone(task);
     Reflect.deleteProperty(value, "command");
@@ -2137,6 +2521,24 @@ export class LocalVoiceEngine {
           .find((item) => item.status === "queued");
         if (!task) break;
         this.currentTaskId = task.id;
+        try {
+          await this.assertTaskCanStart(task.command);
+        } catch (error) {
+          Object.assign(task, {
+            status: "failed" as const,
+            progress: task.currentSegment > 0 ? task.progress : 0,
+            message:
+              error instanceof Error
+                ? error.message
+                : "任务所需的声音或模型已经不可用，请编辑项目后重试。",
+            errorCode: "TASK_PREFLIGHT_FAILED",
+            updatedAt: new Date().toISOString(),
+          });
+          await this.saveTasks();
+          this.emitTask(task);
+          this.currentTaskId = undefined;
+          continue;
+        }
         Object.assign(task, {
           status: "running" as const,
           message: "正在准备本地模型…",
@@ -2159,18 +2561,21 @@ export class LocalVoiceEngine {
             currentSegment: task.totalSegments,
             message: "生成完成，可以到生成记录试听或导出。",
             resultId: snapshot.result.id,
+            errorCode: undefined,
             updatedAt: new Date().toISOString(),
           });
         } else if (snapshot.status === "stopped") {
           Object.assign(task, {
             status: "canceled" as const,
             message: "任务已取消；已经生成的句子和项目稿件都已保留。",
+            errorCode: undefined,
             updatedAt: new Date().toISOString(),
           });
         } else {
           Object.assign(task, {
             status: "failed" as const,
             message: snapshot.message,
+            errorCode: snapshot.errorCode,
             updatedAt: new Date().toISOString(),
           });
         }

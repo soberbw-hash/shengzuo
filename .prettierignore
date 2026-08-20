@@ -3,5 +3,6 @@ dist
 dist-electron
 release
 artifacts/visual-regression
+artifacts/runtime-cache
 artifacts/integration/indextts2-5-audit
 apps/desktop/public/mock-audio/preview.mp3

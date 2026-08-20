@@ -23,13 +23,13 @@ void test("accepts a healthy spoken segment", () => {
   assert.equal(result.critical, false);
 });
 
-void test("flags likely skipped Chinese text", () => {
+void test("keeps suspiciously fast speech as a warning instead of losing output", () => {
   const result = assessGeneratedAudio(
     { ...healthy, durationSeconds: 0.35 },
     "这是一段明显不可能在零点三秒内完整读完的中文稿件。",
     "careful",
   );
-  assert.equal(result.critical, true);
+  assert.equal(result.critical, false);
   assert.ok(result.issues.includes("疑似漏读或语速异常"));
 });
 

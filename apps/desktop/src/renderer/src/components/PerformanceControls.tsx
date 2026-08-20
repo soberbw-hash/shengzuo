@@ -1,3 +1,4 @@
+import { LockKeyhole } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
@@ -27,6 +28,17 @@ const findPresetValue = (expression: string): string | undefined => {
   return EXPRESSION_PRESETS.find((item) => item.value === normalized)?.value;
 };
 
+const LockedHint = ({ message }: { message: string }) => (
+  <span
+    className="model-language-select__lock generation-control-lock"
+    aria-label={message}
+    tabIndex={0}
+  >
+    <LockKeyhole className="h-3.5 w-3.5" />
+    <span className="model-language-select__requirement">{message}</span>
+  </span>
+);
+
 export const PerformanceControls = ({
   emotion,
   expression,
@@ -35,6 +47,7 @@ export const PerformanceControls = ({
   compact = false,
   modelId,
   language,
+  expressionDisabledReason,
 }: {
   emotion: Emotion;
   expression: string;
@@ -43,8 +56,11 @@ export const PerformanceControls = ({
   compact?: boolean;
   modelId: ModelId;
   language: Language;
+  expressionDisabledReason?: string;
 }) => {
   const capabilities = getModelGenerationCapabilities(modelId, language);
+  const expressionAvailable =
+    capabilities.expression && !expressionDisabledReason;
   const [expressionSelection, setExpressionSelection] = useState(
     () =>
       findPresetValue(expression) ??
@@ -78,7 +94,33 @@ export const PerformanceControls = ({
     onExpressionChange,
   ]);
 
-  if (!capabilities.emotion && !capabilities.expression) return null;
+  useEffect(() => {
+    if (!capabilities.emotion && emotion !== "自然") onEmotionChange("自然");
+    if (!capabilities.expression && expression !== DEFAULT_EXPRESSION) {
+      onExpressionChange(DEFAULT_EXPRESSION);
+      setExpressionSelection(DEFAULT_EXPRESSION);
+    }
+  }, [
+    capabilities.emotion,
+    capabilities.expression,
+    emotion,
+    expression,
+    onEmotionChange,
+    onExpressionChange,
+  ]);
+
+  const emotionRequirement =
+    modelId === "voxcpm2"
+      ? "VoxCPM2 通过表达要求控制语气"
+      : modelId === "fun-cosyvoice3-0.5b"
+        ? "Fun-CosyVoice3 通过表达要求控制语气"
+        : "需要切换到 IndexTTS-2.5 模型";
+  const expressionRequirement =
+    expressionDisabledReason ?? "当前模型不支持表达要求";
+  const expressionSelectionLabel =
+    EXPRESSION_PRESETS.find((item) => item.value === expressionSelection)
+      ?.label ?? "自定义表达";
+
   return (
     <div
       className={
@@ -86,56 +128,72 @@ export const PerformanceControls = ({
           ? "performance-controls performance-controls--compact"
           : "performance-controls"
       }
-      data-columns={capabilities.emotion && capabilities.expression ? "2" : "1"}
+      data-columns="2"
     >
-      {capabilities.emotion ? (
+      <SelectField
+        label="情绪"
+        hint={
+          capabilities.emotion ? (
+            customExpression ? (
+              "由表达要求控制"
+            ) : undefined
+          ) : (
+            <LockedHint message={emotionRequirement} />
+          )
+        }
+        value={capabilities.emotion ? emotion : "自然"}
+        disabled={!capabilities.emotion || customExpression}
+        title={capabilities.emotion ? undefined : emotionRequirement}
+        onChange={(event) => onEmotionChange(event.target.value as Emotion)}
+      >
+        {EMOTION_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </SelectField>
+      <div
+        className="expression-control"
+        data-custom={expressionSelection === CUSTOM_EXPRESSION}
+      >
         <SelectField
-          label="情绪"
-          hint={customExpression ? "由表达要求控制" : undefined}
-          value={emotion}
-          disabled={customExpression}
-          onChange={(event) => onEmotionChange(event.target.value as Emotion)}
+          label="表达要求"
+          hint={
+            expressionAvailable ? undefined : (
+              <LockedHint message={expressionRequirement} />
+            )
+          }
+          value={expressionAvailable ? expressionSelection : DEFAULT_EXPRESSION}
+          disabled={!expressionAvailable}
+          title={
+            expressionAvailable
+              ? expressionSelectionLabel
+              : expressionRequirement
+          }
+          onChange={(event) => {
+            const value = event.target.value;
+            setExpressionSelection(value);
+            onExpressionChange(value === CUSTOM_EXPRESSION ? "" : value);
+          }}
         >
-          {EMOTION_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option}
+          {EXPRESSION_PRESETS.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
             </option>
           ))}
+          <option value={CUSTOM_EXPRESSION}>自定义…</option>
         </SelectField>
-      ) : null}
-      {capabilities.expression ? (
-        <div
-          className="expression-control"
-          data-custom={expressionSelection === CUSTOM_EXPRESSION}
-        >
-          <SelectField
-            label="表达要求"
-            value={expressionSelection}
-            onChange={(event) => {
-              const value = event.target.value;
-              setExpressionSelection(value);
-              onExpressionChange(value === CUSTOM_EXPRESSION ? "" : value);
-            }}
-          >
-            {EXPRESSION_PRESETS.map((item) => (
-              <option key={item.value} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-            <option value={CUSTOM_EXPRESSION}>自定义…</option>
-          </SelectField>
-          {expressionSelection === CUSTOM_EXPRESSION ? (
-            <TextField
-              label="自定义表达"
-              value={expression}
-              maxLength={200}
-              autoFocus
-              placeholder="例如：像朋友聊天"
-              onChange={(event) => onExpressionChange(event.target.value)}
-            />
-          ) : null}
-        </div>
-      ) : null}
+        {expressionAvailable && expressionSelection === CUSTOM_EXPRESSION ? (
+          <TextField
+            label="自定义表达"
+            value={expression}
+            maxLength={200}
+            autoFocus
+            placeholder="例如：像朋友聊天"
+            onChange={(event) => onExpressionChange(event.target.value)}
+          />
+        ) : null}
+      </div>
     </div>
   );
 };

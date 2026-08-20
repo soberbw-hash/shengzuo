@@ -11,6 +11,7 @@ import {
   type ModelId,
   type OutputFormat,
   type PronunciationRule,
+  type SmartPerformanceSegment,
   type VoiceProfile,
 } from "@ai-voice-studio/shared-types";
 import type { BadgeTone } from "@ai-voice-studio/ui";
@@ -20,6 +21,12 @@ export interface ToastMessage {
   title: string;
   description?: string;
   tone: BadgeTone;
+  durationMs?: number | null;
+  dedupeKey?: string;
+  action?: {
+    label: string;
+    to: string;
+  };
 }
 
 const initialVoiceProfiles: VoiceProfile[] = [];
@@ -37,6 +44,7 @@ interface StudioState {
   format: OutputFormat;
   presetId: GenerationPresetId;
   pronunciationRules: PronunciationRule[];
+  performanceSegments: SmartPerformanceSegment[];
   engine: EngineSnapshot | null;
   engines: Partial<Record<ModelId, EngineSnapshot>>;
   results: AudioResult[];
@@ -59,6 +67,7 @@ interface StudioState {
   setFormat: (format: OutputFormat) => void;
   setPresetId: (presetId: GenerationPresetId) => void;
   setPronunciationRules: (rules: PronunciationRule[]) => void;
+  setPerformanceSegments: (segments: SmartPerformanceSegment[]) => void;
   setEngine: (engine: EngineSnapshot) => void;
   setEngines: (engines: EngineSnapshot[]) => void;
   setResults: (results: AudioResult[]) => void;
@@ -70,6 +79,7 @@ interface StudioState {
   removeProject: (projectId: string) => void;
   setTasks: (tasks: GenerationTask[]) => void;
   updateTask: (task: GenerationTask) => void;
+  removeTask: (taskId: string) => void;
   setActiveVoicePreview: (voiceId: string | null) => void;
   pushToast: (toast: Omit<ToastMessage, "id">) => void;
   dismissToast: (id: string) => void;
@@ -91,6 +101,7 @@ export const useStudioStore = create<StudioState>((set) => ({
   format: "mp3",
   presetId: "natural",
   pronunciationRules: [],
+  performanceSegments: [],
   engine: null,
   engines: {},
   results: [],
@@ -102,6 +113,7 @@ export const useStudioStore = create<StudioState>((set) => ({
     set((state) => ({
       selectedModel,
       engine: state.engines[selectedModel] ?? null,
+      performanceSegments: [],
     })),
   setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
   setVoiceProfiles: (voiceProfiles) => set({ voiceProfiles }),
@@ -126,15 +138,16 @@ export const useStudioStore = create<StudioState>((set) => ({
             : state.selectedVoice,
       };
     }),
-  setText: (text) => set({ text }),
+  setText: (text) => set({ text, performanceSegments: [] }),
   setExpression: (expression) => set({ expression }),
-  setLanguage: (language) => set({ language }),
+  setLanguage: (language) => set({ language, performanceSegments: [] }),
   setEmotion: (emotion) => set({ emotion }),
   setSpeed: (speed) => set({ speed }),
   setVolume: (volume) => set({ volume }),
   setFormat: (format) => set({ format }),
   setPresetId: (presetId) => set({ presetId }),
   setPronunciationRules: (pronunciationRules) => set({ pronunciationRules }),
+  setPerformanceSegments: (performanceSegments) => set({ performanceSegments }),
   setEngine: (engine) =>
     set((state) => ({
       engines: { ...state.engines, [engine.modelId]: engine },
@@ -192,12 +205,19 @@ export const useStudioStore = create<StudioState>((set) => ({
     set((state) => ({
       tasks: [task, ...state.tasks.filter((item) => item.id !== task.id)],
     })),
+  removeTask: (taskId) =>
+    set((state) => ({
+      tasks: state.tasks.filter((item) => item.id !== taskId),
+    })),
   setActiveVoicePreview: (activeVoicePreview) => set({ activeVoicePreview }),
   pushToast: (toast) =>
     set((state) => {
       const duplicate = state.toasts.find(
         (item) =>
-          item.title === toast.title && item.description === toast.description,
+          (toast.dedupeKey && item.dedupeKey === toast.dedupeKey) ||
+          (!toast.dedupeKey &&
+            item.title === toast.title &&
+            item.description === toast.description),
       );
       if (duplicate) return state;
       return {

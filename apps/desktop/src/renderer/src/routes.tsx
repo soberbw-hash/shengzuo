@@ -29,16 +29,16 @@ export interface AppRoute {
 export const primaryRoutes: AppRoute[] = [
   {
     path: "/",
-    label: "开始创作",
-    caption: "单段快速配音",
+    label: "单段配音",
+    caption: "一段文字 · 一个声音",
     icon: AudioLines,
     id: "generate",
     area: "create",
   },
   {
     path: "/subtitles",
-    label: "字幕配音",
-    caption: "长稿逐句配音",
+    label: "长稿配音",
+    caption: "整篇文稿 · 逐句调整",
     icon: Captions,
     id: "subtitles",
     area: "create",
@@ -46,7 +46,7 @@ export const primaryRoutes: AppRoute[] = [
   {
     path: "/dialogue",
     label: "多人对话",
-    caption: "按角色生成台词",
+    caption: "多个角色 · 分配声音",
     icon: MessagesSquare,
     id: "dialogue",
     area: "create",
@@ -72,8 +72,8 @@ export const primaryRoutes: AppRoute[] = [
 export const toolRoutes: AppRoute[] = [
   {
     path: "/models",
-    label: "本地引擎",
-    caption: "下载与管理模型",
+    label: "本地模型",
+    caption: "下载与管理",
     icon: Blocks,
     id: "models",
     area: "system",

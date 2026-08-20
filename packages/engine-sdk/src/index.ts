@@ -37,6 +37,14 @@ export const validateGenerationRequest = (
     );
   if (request.expression.length > 500)
     errors.push("表达要求不能超过 500 个字符。");
+  if (
+    request.voxMode === "design" &&
+    (request.modelId !== "voxcpm2" ||
+      !request.voiceDescription ||
+      request.voiceDescription.trim().length < 4)
+  ) {
+    errors.push("请用一句话描述想要的声音。");
+  }
   if (request.speed < 0.5 || request.speed > 2)
     errors.push("语速需要在 0.5 到 2.0 之间。");
   if (request.volume < 0 || request.volume > 150)

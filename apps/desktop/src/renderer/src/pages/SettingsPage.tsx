@@ -8,6 +8,7 @@ import {
   FileAudio,
   FolderOpen,
   HardDrive,
+  Heart,
   Info,
   KeyRound,
   RefreshCw,
@@ -39,7 +40,9 @@ import { Button, GlassCard, Modal, TextField } from "@ai-voice-studio/ui";
 
 import { PageHeader } from "../components/PageHeader";
 import { SectionHeading } from "../components/SectionHeading";
+import { announceSmartApiConfigChanged } from "../hooks/useSmartApiAvailability";
 import { desktopApi } from "../lib/desktopApi";
+import { getUserErrorMessage } from "../lib/errorMessage";
 import { useStudioStore } from "../store/studioStore";
 
 const SettingRow = ({
@@ -88,6 +91,15 @@ const checkStatusCopy: Record<
   },
 };
 
+const smartEndpointNeedsKey = (baseUrl: string): boolean => {
+  try {
+    const host = new URL(baseUrl).hostname.toLowerCase();
+    return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
+  } catch {
+    return true;
+  }
+};
+
 export const SettingsPage = () => {
   const navigate = useNavigate();
   const captureNaming =
@@ -100,6 +112,7 @@ export const SettingsPage = () => {
     new URLSearchParams(window.location.search).get("smart") ??
     new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("smart");
   const [showLicenses, setShowLicenses] = useState(false);
+  const [showDonate, setShowDonate] = useState(false);
   const [showNaming, setShowNaming] = useState(captureNaming === "1");
   const [modelsPath, setModelsPath] = useState("正在读取…");
   const [namingTemplate, setNamingTemplate] = useState(
@@ -124,12 +137,17 @@ export const SettingsPage = () => {
     baseUrl: "https://api.openai.com/v1",
     model: "",
     hasApiKey: false,
+    apiKeyStatus: "missing",
   });
   const [smartBaseUrl, setSmartBaseUrl] = useState("https://api.openai.com/v1");
   const [smartModel, setSmartModel] = useState("");
   const [smartApiKey, setSmartApiKey] = useState("");
-  const [savingSmart, setSavingSmart] = useState(false);
+  const [smartConfigLoadFailed, setSmartConfigLoadFailed] = useState(false);
   const [testingSmart, setTestingSmart] = useState(false);
+  const [smartTestFeedback, setSmartTestFeedback] = useState<{
+    tone: "success" | "danger";
+    message: string;
+  } | null>(null);
   const [systemCheck, setSystemCheck] = useState<SystemCheckResult | null>(
     null,
   );
@@ -137,27 +155,51 @@ export const SettingsPage = () => {
   const pushToast = useStudioStore((state) => state.pushToast);
 
   useEffect(() => {
-    void Promise.all([
+    void Promise.allSettled([
       desktopApi.app.getModelsPath(),
       desktopApi.app.getRuntimeInfo(),
       desktopApi.audio.getExportNamingSettings(),
       desktopApi.smart.getConfig(),
-    ]).then(([pathValue, runtime, naming, smart]) => {
-      setModelsPath(pathValue);
-      setRuntimeInfo(runtime);
-      setNamingTemplate(naming.template);
-      setNamingDraft(naming.template);
-      setSmartConfig(smart);
-      setSmartBaseUrl(smart.baseUrl);
-      setSmartModel(smart.model);
-    });
+    ] as const).then(
+      ([pathResult, runtimeResult, namingResult, smartResult]) => {
+        if (pathResult.status === "fulfilled") {
+          setModelsPath(pathResult.value);
+        } else {
+          setModelsPath("读取失败");
+        }
+
+        if (runtimeResult.status === "fulfilled") {
+          setRuntimeInfo(runtimeResult.value);
+        }
+
+        if (namingResult.status === "fulfilled") {
+          setNamingTemplate(namingResult.value.template);
+          setNamingDraft(namingResult.value.template);
+        }
+
+        if (smartResult.status === "fulfilled") {
+          const smart = smartResult.value;
+          setSmartConfig(smart);
+          setSmartBaseUrl(smart.baseUrl);
+          setSmartModel(smart.model);
+          setSmartConfigLoadFailed(false);
+        } else {
+          setSmartConfigLoadFailed(true);
+          pushToast({
+            title: "API配置读取失败",
+            description: "已保存的配置暂时没有读到，请重新打开设置页再试。",
+            tone: "danger",
+          });
+        }
+      },
+    );
     if (captureUpdate === "1") {
       void desktopApi.app.checkForUpdates().then((result) => {
         setUpdateCheck(result);
         setShowUpdateCheck(true);
       });
     }
-  }, [captureUpdate]);
+  }, [captureUpdate, pushToast]);
 
   const namingPreview = `${renderExportFileStem(namingDraft, {
     title: "产品介绍",
@@ -173,56 +215,54 @@ export const SettingsPage = () => {
     setSmartBaseUrl(smartConfig.baseUrl);
     setSmartModel(smartConfig.model);
     setSmartApiKey("");
+    setSmartTestFeedback(null);
     setShowSmartConfig(true);
   };
 
-  const saveSmartConfig = async (closeAfterSave = true) => {
-    if (!smartConfigValid || savingSmart) return null;
-    setSavingSmart(true);
+  const saveAndVerifySmartConfig = async () => {
+    if (!smartConfigValid || testingSmart) return;
+    setTestingSmart(true);
+    setSmartTestFeedback(null);
     try {
-      const saved = await desktopApi.smart.updateConfig({
-        enabled: true,
+      const pending = await desktopApi.smart.updateConfig({
+        enabled: false,
         baseUrl: smartBaseUrl.trim(),
         model: smartModel.trim(),
         apiKey: smartApiKey.trim() || undefined,
         clearApiKey: false,
       });
-      setSmartConfig(saved);
+      setSmartConfig(pending);
+      announceSmartApiConfigChanged(pending);
       setSmartApiKey("");
-      if (closeAfterSave) setShowSmartConfig(false);
-      pushToast({ title: "API配置已保存", tone: "success" });
-      return saved;
-    } catch (error) {
-      pushToast({
-        title: "API配置没有保存",
-        description: error instanceof Error ? error.message : "请重试。",
-        tone: "danger",
-      });
-      return null;
-    } finally {
-      setSavingSmart(false);
-    }
-  };
-
-  const testSmartConnection = async () => {
-    if (!smartConfigValid || testingSmart) return;
-    setTestingSmart(true);
-    try {
-      const saved = await saveSmartConfig(false);
-      if (!saved) return;
+      if (
+        smartEndpointNeedsKey(pending.baseUrl) &&
+        pending.apiKeyStatus !== "ready"
+      ) {
+        throw new Error(
+          pending.apiKeyStatus === "unreadable"
+            ? "原来的 API Key 无法读取，请重新输入后再验证。"
+            : "请输入 API Key 后再验证。",
+        );
+      }
       const result = await desktopApi.smart.testConnection();
+      const verified = await desktopApi.smart.updateConfig({
+        enabled: true,
+        baseUrl: pending.baseUrl,
+        model: pending.model,
+        clearApiKey: false,
+      });
+      setSmartConfig(verified);
+      setSmartConfigLoadFailed(false);
+      announceSmartApiConfigChanged(verified);
+      setShowSmartConfig(false);
       pushToast({
-        title: result.message,
-        description: `模型：${result.model}`,
+        title: "API配置已保存",
+        description: `${result.message} 模型：${result.model}`,
         tone: "success",
       });
     } catch (error) {
-      pushToast({
-        title: "API 连接失败",
-        description:
-          error instanceof Error ? error.message : "请检查网络后重试。",
-        tone: "danger",
-      });
+      const message = getUserErrorMessage(error, "请检查网络后重试。");
+      setSmartTestFeedback({ tone: "danger", message });
     } finally {
       setTestingSmart(false);
     }
@@ -242,7 +282,7 @@ export const SettingsPage = () => {
     } catch (error) {
       pushToast({
         title: "命名规则没有保存",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     } finally {
@@ -265,7 +305,7 @@ export const SettingsPage = () => {
     } catch (error) {
       pushToast({
         title: "诊断包没有导出",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     } finally {
@@ -293,8 +333,7 @@ export const SettingsPage = () => {
     } catch (error) {
       pushToast({
         title: "检查没有完成",
-        description:
-          error instanceof Error ? error.message : "请关闭软件后重新打开。",
+        description: getUserErrorMessage(error, "请关闭软件后重新打开。"),
         tone: "danger",
       });
     } finally {
@@ -320,8 +359,7 @@ export const SettingsPage = () => {
     } catch (error) {
       pushToast({
         title: "检查更新失败",
-        description:
-          error instanceof Error ? error.message : "请确认网络后重试。",
+        description: getUserErrorMessage(error, "请确认网络后重试。"),
         tone: "danger",
       });
     } finally {
@@ -346,7 +384,7 @@ export const SettingsPage = () => {
     } catch (error) {
       pushToast({
         title: "没有更改模型位置",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     } finally {
@@ -355,7 +393,7 @@ export const SettingsPage = () => {
   };
 
   return (
-    <div className="page-content">
+    <div className="page-content settings-page">
       <PageHeader title="设置" />
 
       <GlassCard tone="soft" padding="md" className="settings-health-card">
@@ -365,7 +403,7 @@ export const SettingsPage = () => {
           </span>
           <div className="min-w-0 flex-1">
             <strong>检查与修复</strong>
-            <p>检查模型、运行环境和文件权限，有问题会自动修复。</p>
+            <p>检查模型、生成组件和文件权限，有问题会自动修复。</p>
             {systemCheck ? (
               <small>
                 上次结果：{systemCheck.readyModelCount} 款模型可用
@@ -389,16 +427,26 @@ export const SettingsPage = () => {
       </GlassCard>
 
       <div className="settings-grid">
-        <GlassCard tone="solid" padding="lg">
+        <GlassCard tone="solid" padding="lg" data-setting-section="local">
           <SectionHeading title="本机" />
           <div className="mt-4 divide-y divide-[#e7eef5]">
             <SettingRow
               icon={<Sparkles className="h-4 w-4" />}
               title="API配置"
               description={
-                smartConfig.model
-                  ? `${smartConfig.model} · 已配置`
-                  : "填写文字处理接口的信息。"
+                smartConfigLoadFailed
+                  ? "暂时没有读到已保存的配置，可以重新填写并验证。"
+                  : smartConfig.model
+                    ? `${smartConfig.model} · ${
+                        !smartConfig.enabled
+                          ? "尚未验证"
+                          : smartConfig.apiKeyStatus === "ready"
+                            ? "密钥已保存"
+                            : smartConfig.apiKeyStatus === "unreadable"
+                              ? "密钥需重新填写"
+                              : "未填 API Key"
+                      }`
+                    : "填写文字处理接口的信息。"
               }
             >
               <Button size="sm" variant="secondary" onClick={openSmartConfig}>
@@ -413,9 +461,10 @@ export const SettingsPage = () => {
               <div className="model-path-actions">
                 <button
                   className="path-button"
+                  title={modelsPath}
                   onClick={() => void desktopApi.app.openModelsFolder()}
                 >
-                  <span title={modelsPath}>{modelsPath}</span>
+                  <span>打开模型文件夹</span>
                   <FolderOpen className="h-4 w-4" />
                 </button>
                 <Button
@@ -457,63 +506,94 @@ export const SettingsPage = () => {
               }
             >
               <EnabledValue>
-                {runtimeInfo?.hardware.computeMode === "cpu" ? "CPU" : "CUDA"}
+                {runtimeInfo?.hardware.computeMode === "cpu"
+                  ? "处理器"
+                  : "显卡加速"}
               </EnabledValue>
             </SettingRow>
           </div>
         </GlassCard>
 
-        <GlassCard tone="solid" padding="lg">
-          <SectionHeading title="维护" />
-          <div className="mt-4 divide-y divide-[#e7eef5]">
-            <SettingRow
-              icon={<Download className="h-4 w-4" />}
-              title="检查更新"
-              description={`当前版本 ${runtimeInfo?.version ?? "正在读取…"}`}
-            >
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={checkingUpdates}
-                onClick={() => void checkForUpdates()}
+        <div className="settings-secondary-column">
+          <GlassCard
+            tone="solid"
+            padding="lg"
+            data-setting-section="maintenance"
+          >
+            <SectionHeading title="维护" />
+            <div className="mt-4 divide-y divide-[#e7eef5]">
+              <SettingRow
+                icon={<Download className="h-4 w-4" />}
+                title="检查更新"
+                description={`当前版本 ${runtimeInfo?.version ?? "正在读取…"}`}
               >
-                <RefreshCw
-                  className={`h-3.5 w-3.5${checkingUpdates ? " animate-spin" : ""}`}
-                />
-                {checkingUpdates ? "正在检查…" : "检查更新"}
-              </Button>
-            </SettingRow>
-            <SettingRow
-              icon={<Stethoscope className="h-4 w-4" />}
-              title="导出诊断包"
-              description="用于排查问题，不包含文稿和录音。"
-            >
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={exportingDiagnostics}
-                onClick={() => void exportDiagnostics()}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={checkingUpdates}
+                  onClick={() => void checkForUpdates()}
+                >
+                  <RefreshCw
+                    className={`h-3.5 w-3.5${checkingUpdates ? " animate-spin" : ""}`}
+                  />
+                  {checkingUpdates ? "正在检查…" : "检查更新"}
+                </Button>
+              </SettingRow>
+              <SettingRow
+                icon={<Stethoscope className="h-4 w-4" />}
+                title="导出诊断包"
+                description="用于排查问题，不包含文稿和录音。"
               >
-                <FileArchive className="h-3.5 w-3.5" />
-                {exportingDiagnostics ? "正在整理…" : "导出 ZIP"}
-              </Button>
-            </SettingRow>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={exportingDiagnostics}
+                  onClick={() => void exportDiagnostics()}
+                >
+                  <FileArchive className="h-3.5 w-3.5" />
+                  {exportingDiagnostics ? "正在整理…" : "导出 ZIP"}
+                </Button>
+              </SettingRow>
+              <SettingRow
+                icon={<FileArchive className="h-4 w-4" />}
+                title="软件许可"
+                description="查看声作本体、鸿蒙字体和模型许可。"
+              >
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowLicenses(true)}
+                >
+                  查看
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </Button>
+              </SettingRow>
+            </div>
+          </GlassCard>
+
+          <GlassCard
+            tone="soft"
+            padding="none"
+            className="settings-support-card"
+            data-setting-section="support"
+          >
             <SettingRow
-              icon={<FileArchive className="h-4 w-4" />}
-              title="软件许可"
-              description="查看声作本体、鸿蒙字体和模型许可。"
+              icon={<Heart className="h-4 w-4" />}
+              title="投喂"
+              description="打开微信收款码。"
             >
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => setShowLicenses(true)}
+                aria-label="打开投喂收款码"
+                onClick={() => setShowDonate(true)}
               >
                 查看
                 <ChevronRight className="h-3.5 w-3.5" />
               </Button>
             </SettingRow>
-          </div>
-        </GlassCard>
+          </GlassCard>
+        </div>
       </div>
 
       <Modal
@@ -522,27 +602,19 @@ export const SettingsPage = () => {
         description="填写 API 服务商提供的信息。API Key 只保存在这台电脑上。"
         onClose={() => setShowSmartConfig(false)}
         footer={
-          <>
-            <Button
-              variant="secondary"
-              disabled={!smartConfigValid || testingSmart || savingSmart}
-              onClick={() => void testSmartConnection()}
-            >
-              <Sparkles className="h-4 w-4" />
-              {testingSmart ? "正在连接…" : "保存并测试"}
-            </Button>
-            <Button
-              disabled={!smartConfigValid || savingSmart || testingSmart}
-              onClick={() => void saveSmartConfig()}
-            >
-              {savingSmart ? "正在保存…" : "保存"}
-            </Button>
-          </>
+          <Button
+            disabled={!smartConfigValid || testingSmart}
+            onClick={() => void saveAndVerifySmartConfig()}
+          >
+            <Sparkles className="h-4 w-4" />
+            {testingSmart ? "正在验证…" : "保存并验证"}
+          </Button>
         }
       >
         <div className="smart-api-editor">
           <TextField
-            label="Base URL"
+            label="接口地址（Base URL）"
+            hint="DeepSeek 示例：https://api.deepseek.com"
             value={smartBaseUrl}
             maxLength={2_048}
             error={
@@ -551,27 +623,38 @@ export const SettingsPage = () => {
                 : undefined
             }
             placeholder="例如：https://api.deepseek.com"
-            onChange={(event) => setSmartBaseUrl(event.target.value)}
+            onChange={(event) => {
+              setSmartBaseUrl(event.target.value);
+              setSmartTestFeedback(null);
+            }}
           />
           <TextField
-            label="Model"
+            label="模型名称（Model）"
+            hint="DeepSeek 示例：deepseek-v4-flash"
             value={smartModel}
             maxLength={120}
-            placeholder="例如：deepseek-chat"
-            onChange={(event) => setSmartModel(event.target.value)}
+            placeholder="例如：deepseek-v4-flash"
+            onChange={(event) => {
+              setSmartModel(event.target.value);
+              setSmartTestFeedback(null);
+            }}
           />
           <TextField
             label="API Key"
+            hint="服务商提供的 sk-... 密钥"
             type="password"
             value={smartApiKey}
             maxLength={500}
             placeholder={
-              smartConfig.hasApiKey
+              smartConfig.apiKeyStatus === "ready"
                 ? "已保存；如需更换，请输入新的 API Key"
-                : "请输入 API Key；不需要密钥的接口可不填"
+                : smartConfig.apiKeyStatus === "unreadable"
+                  ? "原 API Key 无法读取，请重新输入"
+                  : "请输入 API Key；不需要密钥的接口可不填"
             }
             onChange={(event) => {
               setSmartApiKey(event.target.value);
+              setSmartTestFeedback(null);
             }}
           />
           <div className="smart-api-security-note">
@@ -580,6 +663,20 @@ export const SettingsPage = () => {
               只有使用带闪光图标的 API 功能时才会发送文字；不会发送录音和音频。
             </span>
           </div>
+          {smartTestFeedback ? (
+            <div
+              className="smart-api-test-feedback"
+              data-tone={smartTestFeedback.tone}
+              role="status"
+            >
+              {smartTestFeedback.tone === "success" ? (
+                <CheckCircle2 className="h-4 w-4" />
+              ) : (
+                <AlertTriangle className="h-4 w-4" />
+              )}
+              <span>{smartTestFeedback.message}</span>
+            </div>
+          ) : null}
         </div>
       </Modal>
 
@@ -640,7 +737,7 @@ export const SettingsPage = () => {
           </div>
           <div className="export-naming-preview">
             <small>导出示例</small>
-            <strong>{namingPreview}</strong>
+            <strong title={namingPreview}>{namingPreview}</strong>
           </div>
           <button
             type="button"
@@ -664,7 +761,7 @@ export const SettingsPage = () => {
         description={
           systemCheck
             ? `${systemCheck.readyModelCount} 款模型可用；${systemCheck.attentionCount} 项需要处理。`
-            : "正在检查本地运行环境。"
+            : "正在检查软件运行状态。"
         }
         onClose={() => setShowSystemCheck(false)}
         footer={
@@ -754,6 +851,19 @@ export const SettingsPage = () => {
       </Modal>
 
       <Modal
+        open={showDonate}
+        title="投喂"
+        onClose={() => setShowDonate(false)}
+      >
+        <div className="donate-dialog">
+          <div className="donate-qr-frame">
+            <img src="./donate/wechat-pay.png" alt="微信收款码" />
+          </div>
+          <strong>微信扫码</strong>
+        </div>
+      </Modal>
+
+      <Modal
         open={showLicenses}
         title="软件许可"
         description="声作本体与第三方组件分别适用不同许可。"
@@ -765,7 +875,7 @@ export const SettingsPage = () => {
             "声作本体 · 保留全部权利，未经书面许可不得复制、修改、分发或商用",
             "VoxCPM2 · Apache License 2.0",
             "Fun-CosyVoice3 · Apache License 2.0",
-            "IndexTTS-2.5 · bilibili Model Use License",
+            "IndexTTS-2.5 · bilibili Model Use License · 当前组合仅限非商业",
             "Electron、React、Vite、Tailwind CSS · MIT License",
             "Lucide · ISC License",
             "界面使用 HarmonyOS Sans 字体 · Copyright 2021 Huawei Device Co., Ltd. · HarmonyOS Sans Fonts License Agreement",

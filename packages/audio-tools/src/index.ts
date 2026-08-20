@@ -17,21 +17,31 @@ export interface TextReplacementRule {
   source: string;
   replacement: string;
   enabled?: boolean;
+  /** 旧规则未保存此字段时按“改读音”处理。 */
+  action?: "replace" | "skip";
 }
+
+const activeTextReplacementRules = (
+  rules: readonly TextReplacementRule[],
+): TextReplacementRule[] =>
+  [...rules]
+    .filter((rule) => {
+      const action = rule.action ?? "replace";
+      return (
+        rule.enabled !== false &&
+        rule.source.trim().length > 0 &&
+        (action === "skip" ||
+          (action === "replace" && rule.replacement.trim().length > 0))
+      );
+    })
+    .sort((left, right) => right.source.length - left.source.length);
 
 /** Applies literal, longest-first pronunciation replacements. */
 export const applyTextReplacementRules = (
   input: string,
   rules: readonly TextReplacementRule[] = [],
 ): string => {
-  const active = [...rules]
-    .filter(
-      (rule) =>
-        rule.enabled !== false &&
-        rule.source.trim().length > 0 &&
-        rule.replacement.trim().length > 0,
-    )
-    .sort((left, right) => right.source.length - left.source.length);
+  const active = activeTextReplacementRules(rules);
   let result = "";
   let cursor = 0;
   while (cursor < input.length) {
@@ -39,7 +49,8 @@ export const applyTextReplacementRules = (
       input.startsWith(rule.source, cursor),
     );
     if (matched) {
-      result += matched.replacement;
+      result +=
+        (matched.action ?? "replace") === "skip" ? "" : matched.replacement;
       cursor += matched.source.length;
     } else {
       result += input[cursor] ?? "";
@@ -47,6 +58,51 @@ export const applyTextReplacementRules = (
     }
   }
   return result;
+};
+
+/** Builds a spoken preview and its matching end offset in the original text. */
+export const createTextReplacementPreview = (
+  input: string,
+  rules: readonly TextReplacementRule[] = [],
+  meaningfulLimit = 30,
+): { text: string; sourceEnd: number } => {
+  if (!Number.isInteger(meaningfulLimit) || meaningfulLimit < 1) {
+    return { text: "", sourceEnd: 0 };
+  }
+  const active = activeTextReplacementRules(rules);
+  let text = "";
+  let meaningfulCount = 0;
+  let sourceEnd = 0;
+  const append = (value: string): boolean => {
+    for (const character of value) {
+      text += character;
+      if (!/\s/u.test(character)) meaningfulCount += 1;
+      if (meaningfulCount >= meaningfulLimit) return false;
+    }
+    return true;
+  };
+
+  while (sourceEnd < input.length && meaningfulCount < meaningfulLimit) {
+    const matched = active.find((rule) =>
+      input.startsWith(rule.source, sourceEnd),
+    );
+    if (matched) {
+      sourceEnd += matched.source.length;
+      if (
+        (matched.action ?? "replace") !== "skip" &&
+        !append(matched.replacement)
+      ) {
+        break;
+      }
+      continue;
+    }
+    const codePoint = input.codePointAt(sourceEnd);
+    if (codePoint === undefined) break;
+    const character = String.fromCodePoint(codePoint);
+    sourceEnd += character.length;
+    if (!append(character)) break;
+  }
+  return { text: text.trim(), sourceEnd };
 };
 
 export const speechPauseAfter = (text: string, basePauseMs = 80): number => {

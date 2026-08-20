@@ -137,13 +137,17 @@ export class MockEngine {
       title: request.title,
       kind: "single",
       preview: request.preview,
+      sourceText: request.text,
     });
   }
 
   private startProgressTimer(
     step: number,
     format: "mp3" = "mp3",
-    resultDetails: Pick<AudioResult, "title" | "kind" | "preview"> = {},
+    resultDetails: Pick<
+      AudioResult,
+      "title" | "kind" | "preview" | "sourceText"
+    > = {},
   ): void {
     this.clearTimer();
     this.timer = setInterval(() => {

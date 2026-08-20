@@ -1,5 +1,16 @@
 [
   {
+    "name": "00-product-preview",
+    "route": "/",
+    "width": 1600,
+    "height": 900,
+    "scale": 1,
+    "fileName": "00-product-preview-1600x900@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "01-generate-ready",
     "route": "/",
     "width": 1440,
@@ -44,6 +55,50 @@
     "consoleErrors": []
   },
   {
+    "name": "02ca-smart-text-applied",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02ca-smart-text-applied-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02e-dialogue-extraction",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02e-dialogue-extraction-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02f-language-menu",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02f-language-menu-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02g-generation-mode-help",
+    "route": "/subtitles",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02g-generation-mode-help-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "02d-api-missing",
     "route": "/",
     "width": 1280,
@@ -61,6 +116,17 @@
     "height": 720,
     "scale": 1,
     "fileName": "02b-generate-compact-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "02h-vox-voice-design",
+    "route": "/",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "02h-vox-voice-design-1280x720@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []
@@ -110,6 +176,17 @@
     "consoleErrors": []
   },
   {
+    "name": "04a-voices-compact",
+    "route": "/voices",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "04a-voices-compact-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "04b-voice-drag",
     "route": "/voices?clone=1",
     "width": 1280,
@@ -143,6 +220,28 @@
     "consoleErrors": []
   },
   {
+    "name": "05b-projects-wide",
+    "route": "/projects",
+    "width": 1600,
+    "height": 960,
+    "scale": 1,
+    "fileName": "05b-projects-wide-1600x960@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "05c-projects-queue",
+    "route": "/projects",
+    "width": 1600,
+    "height": 960,
+    "scale": 1,
+    "fileName": "05c-projects-queue-1600x960@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "06-models",
     "route": "/models",
     "width": 1440,
@@ -154,12 +253,56 @@
     "consoleErrors": []
   },
   {
+    "name": "06a-models-compact",
+    "route": "/models",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "06a-models-compact-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "06b-models-wide",
+    "route": "/models",
+    "width": 1840,
+    "height": 1024,
+    "scale": 1,
+    "fileName": "06b-models-wide-1840x1024@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
     "name": "07-settings",
     "route": "/settings",
     "width": 1280,
     "height": 800,
     "scale": 1,
     "fileName": "07-settings-1280x800@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "07e-settings-compact",
+    "route": "/settings",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "07e-settings-compact-1280x720@1x.png",
+    "hasContent": true,
+    "mainOpacity": 1,
+    "consoleErrors": []
+  },
+  {
+    "name": "07a-donate",
+    "route": "/settings",
+    "width": 1280,
+    "height": 720,
+    "scale": 1,
+    "fileName": "07a-donate-1280x720@1x.png",
     "hasContent": true,
     "mainOpacity": 1,
     "consoleErrors": []

@@ -65,6 +65,7 @@ const desktopApi: DesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.tasks.enqueue, request),
     retry: (taskId) => ipcRenderer.invoke(IPC_CHANNELS.tasks.retry, taskId),
     cancel: (taskId) => ipcRenderer.invoke(IPC_CHANNELS.tasks.cancel, taskId),
+    remove: (taskId) => ipcRenderer.invoke(IPC_CHANNELS.tasks.remove, taskId),
     onChanged: (listener) => {
       const handler = (
         _event: Electron.IpcRendererEvent,
@@ -95,6 +96,15 @@ const desktopApi: DesktopApi = {
       ipcRenderer.invoke(IPC_CHANNELS.voices.removeSample, request),
     remove: (voiceId) =>
       ipcRenderer.invoke(IPC_CHANNELS.voices.remove, voiceId),
+    openFolder: () => ipcRenderer.invoke(IPC_CHANNELS.voices.openFolder),
+  },
+  documents: {
+    select: () => ipcRenderer.invoke(IPC_CHANNELS.documents.select),
+    readDropped: (file) =>
+      ipcRenderer.invoke(
+        IPC_CHANNELS.documents.readDropped,
+        webUtils.getPathForFile(file),
+      ),
   },
   audio: {
     listResults: () => ipcRenderer.invoke(IPC_CHANNELS.audio.listResults),

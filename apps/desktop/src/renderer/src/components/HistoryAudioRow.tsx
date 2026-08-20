@@ -1,9 +1,16 @@
-import { Download, Heart, Pause, Play, Trash2 } from "lucide-react";
+import { Download, Heart, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { MODEL_CATALOG, type AudioResult } from "@ai-voice-studio/shared-types";
+import {
+  MODEL_CATALOG,
+  getGenerationPreset,
+  getModelGenerationCapabilities,
+  type AudioResult,
+} from "@ai-voice-studio/shared-types";
 
 import { exportAudioResult } from "../lib/exportAudio";
+import { getUserErrorMessage } from "../lib/errorMessage";
+import { resolveResultTitle } from "../lib/projectNaming";
 import { useStudioStore } from "../store/studioStore";
 
 const formatDuration = (seconds: number): string => {
@@ -23,11 +30,17 @@ const formatTime = (value: string): string =>
 export const HistoryAudioRow = ({
   result,
   busy,
+  projectTitle,
+  highlighted = false,
+  onEdit,
   onToggleFavorite,
   onDelete,
 }: {
   result: AudioResult;
   busy: boolean;
+  projectTitle?: string;
+  highlighted?: boolean;
+  onEdit?: (result: AudioResult) => void;
   onToggleFavorite: (result: AudioResult) => Promise<void>;
   onDelete: (result: AudioResult) => void;
 }) => {
@@ -41,6 +54,41 @@ export const HistoryAudioRow = ({
   const modelName =
     MODEL_CATALOG.find((model) => model.id === result.modelId)?.name ??
     "本地模型";
+  const presetLabel = getGenerationPreset(result.presetId).label;
+  const capabilities = result.modelId
+    ? getModelGenerationCapabilities(result.modelId, result.language ?? "auto")
+    : undefined;
+  const voiceLabel = result.voiceNames?.length
+    ? result.voiceNames.length === 1
+      ? result.voiceNames[0]
+      : `${result.voiceNames.slice(0, 2).join("、")}${result.voiceNames.length > 2 ? `等 ${result.voiceNames.length} 个声音` : ""}`
+    : undefined;
+  const kindLabel =
+    result.kind === "dialogue"
+      ? "多人对话"
+      : result.kind === "subtitles"
+        ? "长稿配音"
+        : "单段配音";
+  const rowTitle = resolveResultTitle(
+    projectTitle,
+    result.title,
+    result.createdAt,
+    kindLabel,
+  );
+  const rowMeta = [
+    kindLabel,
+    voiceLabel ? `声音：${voiceLabel}` : undefined,
+    `策略：${presetLabel}`,
+    capabilities?.emotion && result.emotion
+      ? `情绪：${result.emotion}`
+      : undefined,
+    modelName,
+    result.projectId && result.takeNumber
+      ? `第 ${result.takeNumber} 版`
+      : undefined,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -87,7 +135,7 @@ export const HistoryAudioRow = ({
     } catch (error) {
       pushToast({
         title: "音频没有导出成功",
-        description: error instanceof Error ? error.message : "请重试。",
+        description: getUserErrorMessage(error, "请重试。"),
         tone: "danger",
       });
     }
@@ -97,6 +145,8 @@ export const HistoryAudioRow = ({
     <article
       className="history-audio-row"
       data-favorite={Boolean(result.favorite)}
+      data-highlighted={highlighted}
+      data-result-id={result.id}
     >
       <audio ref={audioRef} src={source} preload="metadata" />
       <div className="history-audio-main">
@@ -114,13 +164,8 @@ export const HistoryAudioRow = ({
         </button>
 
         <div className="history-audio-info">
-          <strong>{result.title ?? "配音"}</strong>
-          <small>
-            {modelName} · {result.format.toUpperCase()}
-            {result.projectId && result.takeNumber
-              ? ` · 第 ${result.takeNumber} 版`
-              : ""}
-          </small>
+          <strong title={rowTitle}>{rowTitle}</strong>
+          <small title={rowMeta}>{rowMeta}</small>
         </div>
         <time dateTime={result.createdAt}>{formatTime(result.createdAt)}</time>
       </div>
@@ -151,6 +196,18 @@ export const HistoryAudioRow = ({
       </div>
 
       <div className="history-audio-actions">
+        {onEdit && result.projectId ? (
+          <button
+            type="button"
+            className="history-export-button"
+            aria-label="用这个版本继续编辑"
+            title="打开当时的文稿并继续编辑"
+            onClick={() => onEdit(result)}
+          >
+            <Pencil className="h-4 w-4" />
+            <span>编辑</span>
+          </button>
+        ) : null}
         <button
           type="button"
           className="history-export-button"

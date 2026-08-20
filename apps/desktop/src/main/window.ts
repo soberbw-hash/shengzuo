@@ -1,8 +1,10 @@
 import path from "node:path";
 
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, screen, shell } from "electron";
 
 import { APP_NAME } from "@ai-voice-studio/shared-types";
+
+import { getMainWindowSizing } from "./windowSizing";
 
 const devServerUrl =
   process.env.VITE_DEV_SERVER_URL?.trim() || "http://127.0.0.1:5173";
@@ -23,11 +25,9 @@ export const createMainWindow = async (): Promise<BrowserWindow> => {
   const iconPath = app.isPackaged
     ? path.join(process.resourcesPath, "build", "icon.png")
     : path.join(app.getAppPath(), "build", "icon.png");
+  const sizing = getMainWindowSizing(screen.getPrimaryDisplay().workAreaSize);
   const window = new BrowserWindow({
-    width: 1600,
-    height: 960,
-    minWidth: 1120,
-    minHeight: 720,
+    ...sizing,
     center: true,
     show: false,
     frame: false,
