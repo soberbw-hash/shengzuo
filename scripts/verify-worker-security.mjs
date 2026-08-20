@@ -1,25 +1,63 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
 const localAppData = process.env.LOCALAPPDATA;
-if (!localAppData) throw new Error("LOCALAPPDATA is unavailable.");
-
 const modelLibrary =
-  process.env.SHENGZUO_MODEL_LIBRARY ?? path.join(localAppData, "声作模型库");
-const runtimeRoot = path.join(modelLibrary, "voxcpm2");
-const python = path.join(runtimeRoot, "runtime", "python.exe");
-const weights = path.join(runtimeRoot, "weights", "VoxCPM2");
+  process.env.SHENGZUO_MODEL_LIBRARY ??
+  (localAppData ? path.join(localAppData, "声作模型库") : undefined);
+const bundledPython = modelLibrary
+  ? path.join(modelLibrary, "voxcpm2", "runtime", "python.exe")
+  : undefined;
+const python =
+  process.env.SHENGZUO_TEST_PYTHON?.trim() ||
+  (bundledPython && existsSync(bundledPython)
+    ? bundledPython
+    : process.platform === "win32"
+      ? "python"
+      : "python3");
 const server = path.resolve("engines/voxcpm2/worker/server.py");
-const integrationRoot = path.resolve("artifacts/integration/voxcpm2");
 
-for (const required of [python, weights, server, integrationRoot]) {
-  if (!existsSync(required))
-    throw new Error(`Missing prerequisite: ${required}`);
-}
+if (!existsSync(server)) throw new Error(`Missing prerequisite: ${server}`);
 
-const port = 48_766;
+const delay = (milliseconds) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const acquireLoopbackPort = () =>
+  new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      if (!address || typeof address === "string") {
+        probe.close();
+        reject(new Error("Could not allocate a loopback port."));
+        return;
+      }
+      probe.close((error) => {
+        if (error) reject(error);
+        else resolve(address.port);
+      });
+    });
+  });
+
+const temporaryRoot = await mkdtemp(
+  path.join(tmpdir(), "shengzuo-worker-security-"),
+);
+const weights = path.join(temporaryRoot, "weights");
+const voiceRoot = path.join(temporaryRoot, "voices");
+const outputRoot = path.join(temporaryRoot, "output");
+await Promise.all(
+  [weights, voiceRoot, outputRoot].map((directory) =>
+    mkdir(directory, { recursive: true }),
+  ),
+);
+
+const port = await acquireLoopbackPort();
 const bootToken = randomBytes(32).toString("base64url");
 const baseUrl = `http://127.0.0.1:${port}`;
 const child = spawn(
@@ -33,15 +71,27 @@ const child = spawn(
     "--weights",
     weights,
     "--voice-root",
-    integrationRoot,
+    voiceRoot,
     "--output-root",
-    integrationRoot,
+    outputRoot,
   ],
-  { windowsHide: true, stdio: "ignore" },
+  { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
 );
 
-const delay = (milliseconds) =>
-  new Promise((resolve) => setTimeout(resolve, milliseconds));
+let spawnError;
+let stderr = "";
+child.once("error", (error) => {
+  spawnError = error;
+});
+child.stderr.setEncoding("utf8");
+child.stderr.on("data", (chunk) => {
+  stderr = `${stderr}${chunk}`.slice(-32_000);
+});
+
+const workerFailure = (message) => {
+  const detail = stderr.trim();
+  return new Error(detail ? `${message}\nWorker stderr:\n${detail}` : message);
+};
 
 const post = (route, token, extraHeaders = {}) =>
   fetch(`${baseUrl}${route}`, {
@@ -56,25 +106,43 @@ const post = (route, token, extraHeaders = {}) =>
 
 const waitUntilReady = async () => {
   for (let attempt = 0; attempt < 60; attempt += 1) {
+    if (spawnError) {
+      throw workerFailure(
+        `Could not start Python worker: ${spawnError.message}`,
+      );
+    }
+    if (child.exitCode !== null) {
+      throw workerFailure(
+        `Worker exited before accepting connections (code ${child.exitCode}).`,
+      );
+    }
     try {
       return await post("/shutdown", "not-authorized");
     } catch {
       await delay(100);
     }
   }
-  throw new Error("Worker did not accept loopback connections.");
+  throw workerFailure("Worker did not accept loopback connections.");
 };
 
-const waitForExit = () =>
+const waitForExit = (requireSuccess = true) =>
   new Promise((resolve, reject) => {
+    const finish = (code) => {
+      if (!requireSuccess || code === 0) resolve();
+      else
+        reject(workerFailure(`Worker exited with code ${code ?? "unknown"}.`));
+    };
+    if (child.exitCode !== null) {
+      finish(child.exitCode);
+      return;
+    }
     const timeout = setTimeout(
-      () => reject(new Error("Worker did not shut down.")),
+      () => reject(workerFailure("Worker did not shut down.")),
       10_000,
     );
     child.once("exit", (code) => {
       clearTimeout(timeout);
-      if (code === 0) resolve();
-      else reject(new Error(`Worker exited with code ${code ?? "unknown"}.`));
+      finish(code);
     });
   });
 
@@ -104,7 +172,12 @@ try {
   console.log(
     "Worker loopback, origin, one-time token and session checks passed.",
   );
-} catch (error) {
-  child.kill();
-  throw error;
+} finally {
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill();
+    await Promise.race([waitForExit(false), delay(5_000)]).catch(
+      () => undefined,
+    );
+  }
+  await rm(temporaryRoot, { recursive: true, force: true });
 }

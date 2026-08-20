@@ -73,7 +73,7 @@ pnpm visual:capture
 - 测试音频：2 秒、44.1 kHz、mono、128 kbps MP3。
 - HTTP 静态资源：200、`audio/mpeg`。
 - 浏览器导出：有效 MP3 帧同步与非空文件。
-- Worker 安全测试通过：仅环回访问、拒绝 Origin、启动 token 只可使用一次、会话 token 鉴权有效。
+- Worker 安全测试通过：用系统 Python 启动真实 Worker，使用临时空目录、无需模型权重；仅环回访问、拒绝 Origin、启动 token 只可使用一次、会话 token 鉴权有效。
 - RTX 4070 上加载到 `cuda:0`，以真实参考音频生成 4.46 秒、24 kHz、mono MP3。
 - Windows unpacked 包构建并检查通过；不含 source map、引擎测试、Python 缓存、构建机路径、模型权重、声音或生成结果，并随附本体许可与隐私说明。
 - 2026-08-21 从最终 `ShengZuo-1.0.0-Windows-Portable` 目录通过真实 `启动.cmd` 入口启动成功，窗口标题为“声作”、主进程保持响应且创建 3 个子进程；重复启动保持单实例。
