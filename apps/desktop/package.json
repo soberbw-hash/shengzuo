@@ -27,6 +27,7 @@
     "@ai-voice-studio/mock-engine": "workspace:*",
     "@ai-voice-studio/shared-types": "workspace:*",
     "@ai-voice-studio/ui": "workspace:*",
+    "fflate": "0.8.2",
     "framer-motion": "11.18.2",
     "lucide-react": "0.511.0",
     "react": "18.3.1",

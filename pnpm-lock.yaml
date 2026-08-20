@@ -64,6 +64,9 @@ importers:
       "@ai-voice-studio/ui":
         specifier: workspace:*
         version: link:../../packages/ui
+      fflate:
+        specifier: 0.8.2
+        version: 0.8.2
       framer-motion:
         specifier: 11.18.2
         version: 11.18.2(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2393,6 +2396,12 @@ packages:
     peerDependenciesMeta:
       picomatch:
         optional: true
+
+  fflate@0.8.2:
+    resolution:
+      {
+        integrity: sha512-cPJU47OaAoCbg0pBvzsgpTPhmhqI5eJjh/JIu8tPj5q+T7iLvW/JAYUqmE7KOB4R1ZyEhzBaIQpQpardBF5z8A==,
+      }
 
   file-entry-cache@8.0.0:
     resolution:
@@ -6082,6 +6091,8 @@ snapshots:
   fdir@6.5.0(picomatch@4.0.5):
     optionalDependencies:
       picomatch: 4.0.5
+
+  fflate@0.8.2: {}
 
   file-entry-cache@8.0.0:
     dependencies:

@@ -9,6 +9,7 @@
 | 组件                            | 锁定版本 | 许可                                                                                                       |
 | ------------------------------- | -------: | ---------------------------------------------------------------------------------------------------------- |
 | Electron                        |   35.7.5 | MIT；Chromium 及其第三方通知见 `app/source/apps/desktop/node_modules/electron/dist/LICENSES.chromium.html` |
+| fflate                          |    0.8.2 | MIT；用于在应用内安全读取 DOCX/XLSX，不依赖系统解压命令                                                    |
 | React / React DOM               |   18.3.1 | MIT                                                                                                        |
 | Scheduler                       |   0.23.2 | MIT                                                                                                        |
 | Framer Motion                   |  11.18.2 | MIT                                                                                                        |

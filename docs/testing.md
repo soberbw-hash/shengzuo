@@ -68,7 +68,7 @@ pnpm visual:capture
 
 ## 6. 本轮证据
 
-- 97 个 TypeScript 单元/协议测试和 11 个 VoxCPM2 Worker 测试通过；完整 Electron 点击式交互测试通过。
+- 99 个 TypeScript 单元/协议测试和 11 个 VoxCPM2 Worker 测试通过；完整 Electron 点击式交互测试通过。
 - 38 张常规视觉基线和 1 张 150% DPI 基线全部有内容、主容器 opacity 为 1、页面错误为空；覆盖 1280×720、1280×800、1440×900、1600×900、1600×960、1840×1024 与 1920×1080，并包含 API 未配置、下载暂停、模型许可、弹窗和错误状态。
 - 测试音频：2 秒、44.1 kHz、mono、128 kbps MP3。
 - HTTP 静态资源：200、`audio/mpeg`。

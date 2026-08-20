@@ -1,42 +1,27 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
+
+import { strToU8, zipSync } from "fflate";
 
 import { readImportedDocument } from "../src/main/documentImport";
-
-const execFileAsync = promisify(execFile);
 
 const createOfficeArchive = async (
   root: string,
   extension: "docx" | "xlsx",
   files: Array<{ name: string; content: string }>,
 ): Promise<string> => {
-  const source = path.join(root, `${extension}-source`);
-  await mkdir(source, { recursive: true });
-  for (const file of files) {
-    const target = path.join(source, ...file.name.split("/"));
-    await mkdir(path.dirname(target), { recursive: true });
-    await writeFile(target, file.content, "utf8");
-  }
-  const zipPath = path.join(root, `${extension}.zip`);
   const officePath = path.join(root, `文稿.${extension}`);
-  const topLevelEntries = [
-    ...new Set(
-      files
-        .map((file) => file.name.split("/")[0])
-        .filter((entry): entry is string => Boolean(entry)),
+  await writeFile(
+    officePath,
+    zipSync(
+      Object.fromEntries(
+        files.map((file) => [file.name, strToU8(file.content)]),
+      ),
     ),
-  ];
-  await execFileAsync(
-    "tar",
-    ["-a", "-cf", zipPath, "-C", source, ...topLevelEntries],
-    { windowsHide: true },
   );
-  await rename(zipPath, officePath);
   return officePath;
 };
 
@@ -76,6 +61,41 @@ void test("imports rows and shared strings from Excel XLSX documents", async () 
     const result = await readImportedDocument(filePath);
     assert.equal(result.kind, "excel");
     assert.equal(result.text, "角色\t台词\n旁白\t故事开始了");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("rejects unsafe paths inside Office documents", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-unsafe-docx-"));
+  try {
+    const filePath = await createOfficeArchive(root, "docx", [
+      {
+        name: "word/document.xml",
+        content: "<w:document><w:p><w:t>安全正文</w:t></w:p></w:document>",
+      },
+      {
+        name: "../outside.xml",
+        content: "不应读取",
+      },
+    ]);
+    await assert.rejects(readImportedDocument(filePath), /包含不安全的路径/u);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+void test("rejects highly compressed oversized Office entries", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-large-docx-"));
+  try {
+    const filePath = path.join(root, "超大文稿.docx");
+    await writeFile(
+      filePath,
+      zipSync({
+        "word/document.xml": new Uint8Array(24 * 1024 * 1024 + 1).fill(65),
+      }),
+    );
+    await assert.rejects(readImportedDocument(filePath), /内容过大/u);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

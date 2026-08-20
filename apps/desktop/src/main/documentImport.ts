@@ -1,12 +1,14 @@
-import { execFile } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 
 import type { ImportedTextDocument } from "@ai-voice-studio/shared-types";
+import { strFromU8, unzipSync } from "fflate";
 
-const execFileAsync = promisify(execFile);
 const maxDocumentBytes = 20 * 1024 * 1024;
+const maxArchiveEntryBytes = 24 * 1024 * 1024;
+const maxArchiveExtractedBytes = 32 * 1024 * 1024;
+const maxArchiveEntries = 10_000;
+const maxArchiveNamesLength = 8 * 1024 * 1024;
 const maxTextLength = 50_000;
 const textExtensions = new Set([".txt", ".srt", ".md", ".markdown", ".csv"]);
 
@@ -41,56 +43,83 @@ const ensureUsableText = (value: string): string => {
   return text;
 };
 
-const listArchiveEntries = async (filePath: string): Promise<string[]> => {
-  let stdout: string;
+const normalizeArchiveEntry = (entry: string): string =>
+  entry.trim().replaceAll("\\", "/");
+
+const isUnsafeArchiveEntry = (entry: string): boolean =>
+  entry.startsWith("/") ||
+  /^[a-z]:/iu.test(entry) ||
+  entry.split("/").includes("..");
+
+const readOfficeArchive = async (
+  filePath: string,
+  shouldExtract: (entry: string) => boolean,
+): Promise<Map<string, Uint8Array>> => {
+  const archive = await readFile(filePath);
+  let entryCount = 0;
+  let entryNamesLength = 0;
+  let extractedBytes = 0;
+  let unsafeEntry = false;
+  let archiveLimitExceeded = false;
+  const seenEntries = new Set<string>();
+  let extracted: Record<string, Uint8Array>;
   try {
-    ({ stdout } = await execFileAsync("tar", ["-tf", filePath], {
-      encoding: "utf8",
-      maxBuffer: 8 * 1024 * 1024,
-      windowsHide: true,
-    }));
+    extracted = unzipSync(archive, {
+      filter: ({ name, originalSize }) => {
+        const entry = normalizeArchiveEntry(name);
+        entryCount += 1;
+        entryNamesLength += entry.length;
+        if (isUnsafeArchiveEntry(entry) || seenEntries.has(entry)) {
+          unsafeEntry = true;
+          return false;
+        }
+        seenEntries.add(entry);
+        if (
+          entryCount > maxArchiveEntries ||
+          entryNamesLength > maxArchiveNamesLength
+        ) {
+          archiveLimitExceeded = true;
+          return false;
+        }
+        if (!shouldExtract(entry)) return false;
+        if (
+          originalSize > maxArchiveEntryBytes ||
+          extractedBytes + originalSize > maxArchiveExtractedBytes
+        ) {
+          archiveLimitExceeded = true;
+          return false;
+        }
+        extractedBytes += originalSize;
+        return true;
+      },
+    });
   } catch {
     throw new Error("这个 Office 文件无法读取，请确认文件没有损坏。");
   }
-  const entries = stdout
-    .split(/\r?\n/u)
-    .map((entry) => entry.trim().replaceAll("\\", "/"))
-    .filter(Boolean);
-  if (
-    entries.some(
-      (entry) =>
-        entry.startsWith("/") ||
-        /^[a-z]:/iu.test(entry) ||
-        entry.split("/").includes(".."),
-    )
-  ) {
+  if (unsafeEntry) {
     throw new Error("这个 Office 文件包含不安全的路径，已停止读取。");
   }
-  return entries;
-};
-
-const archiveText = async (
-  filePath: string,
-  entry: string,
-): Promise<string> => {
-  try {
-    const { stdout } = await execFileAsync("tar", ["-xOf", filePath, entry], {
-      encoding: "utf8",
-      maxBuffer: 24 * 1024 * 1024,
-      windowsHide: true,
-    });
-    return stdout;
-  } catch {
-    throw new Error("这个 Office 文件缺少正文内容，可能已经损坏。");
+  if (archiveLimitExceeded) {
+    throw new Error("这个 Office 文件内容过大，请拆分后再导入。");
   }
+  return new Map(
+    Object.entries(extracted).map(([entry, content]) => [
+      normalizeArchiveEntry(entry),
+      content,
+    ]),
+  );
 };
 
 const readDocx = async (filePath: string): Promise<string> => {
-  const entries = await listArchiveEntries(filePath);
-  if (!entries.includes("word/document.xml")) {
+  const archive = await readOfficeArchive(
+    filePath,
+    (entry) => entry === "word/document.xml",
+  );
+  const documentXml = archive.get("word/document.xml");
+  if (!documentXml) {
     throw new Error("没有在这个 Word 文件里找到正文。");
   }
-  const xml = await archiveText(filePath, "word/document.xml");
+  const xml = strFromU8(documentXml);
   return ensureUsableText(
     decodeXml(
       xml
@@ -116,7 +145,13 @@ const columnNumber = (reference: string): number => {
 };
 
 const readXlsx = async (filePath: string): Promise<string> => {
-  const entries = await listArchiveEntries(filePath);
+  const archive = await readOfficeArchive(
+    filePath,
+    (entry) =>
+      entry === "xl/sharedStrings.xml" ||
+      /^xl\/worksheets\/sheet\d+\.xml$/u.test(entry),
+  );
+  const entries = [...archive.keys()];
   const sheetEntries = entries
     .filter((entry) => /^xl\/worksheets\/sheet\d+\.xml$/u.test(entry))
     .sort((left, right) =>
@@ -128,14 +163,14 @@ const readXlsx = async (filePath: string): Promise<string> => {
   const sharedEntry = entries.find((entry) => entry === "xl/sharedStrings.xml");
   const sharedStrings = sharedEntry
     ? [
-        ...(await archiveText(filePath, sharedEntry)).matchAll(
+        ...strFromU8(archive.get(sharedEntry) ?? new Uint8Array()).matchAll(
           /<si\b[^>]*>([\s\S]*?)<\/si>/giu,
         ),
       ].map((match) => textNodes(match[1] ?? ""))
     : [];
   const sheets: string[] = [];
   for (const [sheetIndex, entry] of sheetEntries.entries()) {
-    const xml = await archiveText(filePath, entry);
+    const xml = strFromU8(archive.get(entry) ?? new Uint8Array());
     const rows: string[] = [];
     for (const rowMatch of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/giu)) {
       const cells: string[] = [];

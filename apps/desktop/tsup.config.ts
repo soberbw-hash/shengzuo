@@ -13,6 +13,6 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   external: ["electron"],
-  noExternal: [/^@ai-voice-studio\//],
+  noExternal: [/^@ai-voice-studio\//, "fflate"],
   outExtension: () => ({ js: ".cjs" }),
 });

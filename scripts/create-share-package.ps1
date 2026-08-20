@@ -141,6 +141,7 @@ $runtimeLicenseRoot = Join-Path $appRoot 'licenses\runtime'
 New-Item -ItemType Directory -Path $runtimeLicenseRoot -Force | Out-Null
 $runtimeLicensePackages = @(
   @('electron', '35.7.5'),
+  @('fflate', '0.8.2'),
   @('framer-motion', '11.18.2'),
   @('motion-dom', '11.18.1'),
   @('motion-utils', '11.18.1'),
@@ -392,7 +393,53 @@ foreach ($oldFile in @($zipPath, $zipHashPath)) {
     Remove-Item -LiteralPath $oldFile -Force
   }
 }
-Compress-Archive -LiteralPath $targetRoot -DestinationPath $zipPath -CompressionLevel Optimal
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::CreateFromDirectory(
+  $targetRoot,
+  $zipPath,
+  [IO.Compression.CompressionLevel]::Optimal,
+  $true
+)
+
+# Compress-Archive silently skips hidden files on Windows. The preset-voice
+# marker is deliberately hidden, so fail the package if the ZIP is not an exact
+# file-for-file copy of the folder that was just audited.
+$zipRootPrefix = "$([IO.Path]::GetFileName($targetRoot))/"
+$expectedZipFiles = @(
+  Get-ChildItem -LiteralPath $targetRoot -File -Recurse -Force |
+    ForEach-Object { $_.FullName.Substring($targetRoot.Length + 1).Replace('\', '/') }
+)
+$zipArchive = [IO.Compression.ZipFile]::OpenRead($zipPath)
+try {
+  $actualZipFiles = @(
+    $zipArchive.Entries |
+      ForEach-Object { $_.FullName.Replace('\', '/') } |
+      Where-Object { $_.StartsWith($zipRootPrefix, [StringComparison]::OrdinalIgnoreCase) -and -not $_.EndsWith('/') } |
+      ForEach-Object { $_.Substring($zipRootPrefix.Length) }
+  )
+}
+finally {
+  $zipArchive.Dispose()
+}
+$actualZipFileSet = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+$duplicateZipFile = $null
+foreach ($actualZipFile in $actualZipFiles) {
+  if (-not $actualZipFileSet.Add($actualZipFile)) {
+    $duplicateZipFile = $actualZipFile
+    break
+  }
+}
+$missingZipFile = $expectedZipFiles |
+  Where-Object { -not $actualZipFileSet.Contains($_) } |
+  Select-Object -First 1
+if (
+  $null -ne $duplicateZipFile -or
+  $actualZipFileSet.Count -ne $expectedZipFiles.Count -or
+  $null -ne $missingZipFile
+) {
+  throw "ZIP 文件清单与发布文件夹不一致：$duplicateZipFile$missingZipFile"
+}
+
 $zipHash = Get-Sha256Hash -Path $zipPath
 [IO.File]::WriteAllText(
   $zipHashPath,
