@@ -54,9 +54,28 @@ import { hasSpeakableText, prepareReadingSegments } from "./readingRules";
 
 import {
   assessGeneratedAudio,
+  estimateSpokenUnits,
+  estimateVisibleCharacters,
+  FrozenQualityBaselineTracker,
+  generationQualityModeFor,
+  isAssessmentBetter,
+  shouldUseVoxLongForm,
+  type FrozenQualityBaseline,
   type GeneratedAudioAssessment,
   type GeneratedAudioMetrics,
 } from "./generatedAudioQuality";
+import {
+  createBatchGenerationSeed,
+  createSegmentFingerprint,
+  createStableGenerationSeed,
+  deriveRetryGenerationSeed,
+  emptyBatchCache,
+  GENERATION_STABILITY_VERSION,
+  isBatchCacheManifestV2,
+  isCachedSegmentRequestCompatible,
+  nextGenerationRetryEpoch,
+  type BatchCacheManifestV2,
+} from "./generationStability";
 import { readResilientJson, writeResilientJson } from "./resilientJsonStore";
 import { TaskStore, type StoredGenerationTask } from "./taskStore";
 import {
@@ -194,6 +213,10 @@ const friendlyGenerationError = (code?: string): string => {
       return "请用一句话描述想要的声音，例如年龄、音色、情绪和语速。";
     case "REFERENCE_TEXT_MISMATCH":
       return "录音原文与录音时长明显不匹配，不能使用极致克隆。请填写完整逐字稿，或改用可控克隆。";
+    case "ULTIMATE_REFERENCE_TOO_LONG":
+      return "极致克隆需要 30 秒以内的参考录音。请换一段更短的录音，或改用可控克隆。";
+    case "VOICE_SAMPLE_QUALITY_LOW":
+      return "录音里没有找到稳定、清晰的人声。请换一段更干净的单人录音后重试。";
     case "INVALID_VOX_MODE":
       return "当前 VoxCPM2 声音来源无效，请重新选择后再试。";
     case "MODEL_NOT_INSTALLED":
@@ -222,7 +245,12 @@ const friendlyGenerationError = (code?: string): string => {
     case "SYSTEM_MEMORY_LOW":
       return "没有兼容显卡，且系统内存不足 16GB；当前电脑不适合运行这些本地模型。";
     case "AUDIO_QUALITY_CHECK_FAILED":
-      return "音频出现漏读、长时间静音或语速异常，自动重做后仍未解决。已经生成的句子会保留，可以直接重试。";
+      return "音频出现漏读、长时间静音、语速或音高异常，自动重做后仍未解决。已经生成的句子会保留，可以直接重试。";
+    case "PACING_STABILITY_FAILED":
+      return "这一段的语速与前文差异过大，自动重做后仍未恢复。其他已完成句子会保留，可以直接重试。";
+    case "INVALID_LONG_FORM":
+    case "INVALID_GENERATION_SEED":
+      return "长稿稳定设置没有正确传给模型。请重试；如果仍然失败，请到设置里运行检查修复。";
     case "PRONUNCIATION_EXPANSION_LIMIT":
       return "朗读规则把文字改得过长，请缩短“改读”内容后重试。";
     case "PRONUNCIATION_SKIPPED_ALL":
@@ -339,18 +367,20 @@ const verifyInstallReceipt = async (directory: string): Promise<void> => {
 const batchFingerprint = (value: unknown): string =>
   createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-const isUnknownRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-interface BatchCacheManifest {
-  projectId: string;
-  segments: Record<
-    string,
-    { fingerprint: string; durationSeconds: number; fileId: string }
-  >;
+interface CheckedGeneration {
+  durationSeconds: number;
+  assessment: GeneratedAudioAssessment;
+  retried: boolean;
 }
 
-interface CheckedGeneration {
+interface CompletedSegmentState {
+  cacheId: string;
+  segmentId: string;
+  fingerprint: string;
+  generationSeed: number;
+  baselineKey: string;
+  request: StableGenerationRequest;
+  voice: GenerationVoiceSource;
   durationSeconds: number;
   assessment: GeneratedAudioAssessment;
   retried: boolean;
@@ -360,21 +390,21 @@ type SegmentedGenerationRequest = Omit<BatchGenerationRequest, "kind"> & {
   kind: NonNullable<AudioResult["kind"]>;
 };
 
+type StableGenerationRequest = GenerationRequest & {
+  longForm?: boolean;
+  generationSeed?: number;
+};
+
 interface GenerationVoiceSource {
   audioPath?: string;
   referenceText: string;
   voiceName: string;
+  sampleId?: string;
+  sampleSha256?: string;
 }
 
 const speechTextSignature = (value: string): string =>
   value.replace(/\s/gu, "");
-
-const qualityModeFor = (
-  request: Pick<GenerationRequest, "presetId" | "text">,
-): GenerationQualityMode =>
-  request.presetId === "longform" || request.presetId === "expressive"
-    ? "careful"
-    : "standard";
 
 const safeChunkSize = (
   modelId: ModelId,
@@ -383,6 +413,19 @@ const safeChunkSize = (
   if (modelId === "voxcpm2") return mode === "careful" ? 52 : 70;
   return mode === "careful" ? 120 : 160;
 };
+
+const qualityBaselineKey = (value: {
+  modelId: ModelId;
+  voiceId: string;
+  sampleId?: string;
+  language: string;
+  emotion: string;
+  expression: string;
+  speed: number;
+  presetId: string;
+  voxMode?: string;
+  voiceDescription?: string;
+}): string => batchFingerprint(value);
 
 class ModelEngine {
   private readonly pluginRoot: string;
@@ -1142,6 +1185,8 @@ class ModelEngine {
         pronunciationRules: request.pronunciationRules,
         voxMode: request.voxMode,
         voiceDescription: request.voiceDescription,
+        retryEpoch: request.retryEpoch,
+        regenerationId: request.regenerationId,
       });
       return;
     }
@@ -1167,7 +1212,10 @@ class ModelEngine {
       });
       return;
     }
-    const qualityMode = qualityModeFor({ ...request, text: preparedText });
+    const qualityMode = generationQualityModeFor({
+      ...request,
+      text: preparedText,
+    });
     const speechSegments = splitTextForSpeech(
       preparedText,
       safeChunkSize(this.config.modelId, qualityMode),
@@ -1209,6 +1257,8 @@ class ModelEngine {
         pronunciationRules: [],
         voxMode: request.voxMode,
         voiceDescription: request.voiceDescription,
+        retryEpoch: request.retryEpoch,
+        regenerationId: request.regenerationId,
       });
       return;
     }
@@ -1240,10 +1290,36 @@ class ModelEngine {
         progress: 35,
         message: `正在用 ${this.config.name} 生成配音，请稍候…`,
       });
+      const longForm = shouldUseVoxLongForm({
+        modelId: request.modelId,
+        presetId: request.presetId,
+        segmentCount: 1,
+        totalSpokenUnits: estimateSpokenUnits(preparedText),
+        totalVisibleCharacters: estimateVisibleCharacters(preparedText),
+      });
+      const generationSeed = createStableGenerationSeed({
+        version: GENERATION_STABILITY_VERSION,
+        requestId: request.requestId,
+        voiceId: request.voiceId,
+        sampleId: voice.sampleId,
+        sampleSha256: voice.sampleSha256,
+        text: preparedText,
+        voxMode: request.voxMode,
+        ...(request.retryEpoch ? { retryEpoch: request.retryEpoch } : {}),
+        ...(request.regenerationId
+          ? { regenerationId: request.regenerationId }
+          : {}),
+      });
       const recovered = await this.generateCheckedSegmentWithRecovery(
         worker,
         jobId,
-        { ...request, text: preparedText, pronunciationRules: [] },
+        {
+          ...request,
+          text: preparedText,
+          pronunciationRules: [],
+          longForm,
+          generationSeed,
+        },
         voice,
       );
       const generated = recovered.generated;
@@ -1282,7 +1358,7 @@ class ModelEngine {
           retriedSegments: generated.retried ? 1 : 0,
           note: generated.assessment.issues.length
             ? "音频检查仍有提醒，建议先试听。"
-            : "已完成音量、静音和语速检查。",
+            : "已完成音量、静音、语速和稳定性检查。",
         },
       };
       if (!request.preview) await this.recordResult(result);
@@ -1394,7 +1470,6 @@ class ModelEngine {
     let checkedSegments = 0;
     let retriedSegments = 0;
     let warningSegments = 0;
-    let paceBaseline: number | undefined;
     this.generationAbort = new AbortController();
     try {
       this.updateSnapshot({
@@ -1409,7 +1484,7 @@ class ModelEngine {
       const voiceIds = [
         ...new Set(request.segments.map((segment) => segment.voiceId)),
       ];
-      const voiceSources = new Map(
+      const voiceSources: Map<string, GenerationVoiceSource> = new Map(
         request.modelId === "voxcpm2" && request.voxMode === "design"
           ? voiceIds.map(
               (voiceId) =>
@@ -1431,6 +1506,56 @@ class ModelEngine {
               ),
             ),
       );
+      const longForm = shouldUseVoxLongForm({
+        modelId: request.modelId,
+        presetId: request.presetId,
+        segmentCount: request.segments.length,
+        totalSpokenUnits: request.segments.reduce(
+          (sum, segment) => sum + estimateSpokenUnits(segment.text),
+          0,
+        ),
+        totalVisibleCharacters: request.segments.reduce(
+          (sum, segment) => sum + estimateVisibleCharacters(segment.text),
+          0,
+        ),
+      });
+      const baselineTracker = new FrozenQualityBaselineTracker();
+      const baselineKeys = request.segments.map((segment) => {
+        const voice = voiceSources.get(segment.voiceId);
+        return qualityBaselineKey({
+          modelId: request.modelId,
+          voiceId: segment.voiceId,
+          sampleId: voice?.sampleId,
+          language: request.language,
+          emotion: segment.emotion ?? request.emotion,
+          expression: segment.expression ?? "自然、清晰",
+          speed: segment.speed ?? request.speed,
+          presetId: request.presetId ?? "natural",
+          voxMode: request.voxMode,
+          voiceDescription: request.voiceDescription,
+        });
+      });
+      const baselineCounts = new Map<string, number>();
+      for (const key of baselineKeys) {
+        baselineCounts.set(key, (baselineCounts.get(key) ?? 0) + 1);
+      }
+      const completedStates: CompletedSegmentState[] = [];
+      const persistSegmentState = async (
+        state: CompletedSegmentState,
+      ): Promise<void> => {
+        cache.segments[state.cacheId] = {
+          fingerprint: state.fingerprint,
+          durationSeconds: state.durationSeconds,
+          fileId: state.segmentId,
+          fileSha256: await sha256File(
+            path.join(this.outputRoot, `${state.segmentId}.mp3`),
+          ),
+          generationSeed: state.generationSeed,
+          assessment: state.assessment,
+          retried: state.retried,
+        };
+        await this.writeBatchCache(cache);
+      };
       let worker = await this.loadReadyWorker();
       let durationSeconds = 0;
       for (const [index, segment] of request.segments.entries()) {
@@ -1438,7 +1563,23 @@ class ModelEngine {
         const segmentId = `${cachePrefix}-part-${batchFingerprint(segment.id).slice(0, 16)}`;
         segmentIds.push(segmentId);
         const preparedText = segment.text;
-        const fingerprint = batchFingerprint({
+        const voice = voiceSources.get(segment.voiceId);
+        if (!voice) throw new Error("VOICE_SAMPLE_NOT_FOUND");
+        const nextGenerationSeed = createBatchGenerationSeed({
+          cacheKey,
+          modelId: request.modelId,
+          voiceId: segment.voiceId,
+          language: request.language,
+          referenceSampleId: voice.sampleId,
+          referenceSampleSha256: voice.sampleSha256,
+          expression: segment.expression ?? "自然、清晰",
+          emotion: segment.emotion ?? request.emotion,
+          voxMode: request.voxMode,
+          voiceDescription: request.voiceDescription,
+          retryEpoch: request.retryEpoch,
+          regenerationId: request.regenerationId,
+        });
+        const fingerprintInput = {
           modelId: request.modelId,
           voiceId: segment.voiceId,
           text: preparedText,
@@ -1450,27 +1591,73 @@ class ModelEngine {
           speed: segment.speed ?? request.speed,
           volume: request.volume,
           presetId: request.presetId ?? "natural",
-          qualityVersion: 1,
-        });
+          referenceSampleId: voice.sampleId,
+          referenceSampleSha256: voice.sampleSha256,
+          longForm,
+          regenerationId: request.regenerationId,
+        };
         const cached = cache.segments[cacheId];
-        if (
-          cached?.fingerprint === fingerprint &&
+        const cachedPath = path.join(this.outputRoot, `${segmentId}.mp3`);
+        const reusableCached =
+          cached &&
+          isCachedSegmentRequestCompatible(fingerprintInput, cached) &&
           cached.fileId === segmentId &&
-          existsSync(path.join(this.outputRoot, `${segmentId}.mp3`))
-        ) {
-          durationSeconds += cached.durationSeconds;
+          !cached.assessment.critical &&
+          existsSync(cachedPath) &&
+          (await sha256File(cachedPath).catch(() => "")) === cached.fileSha256
+            ? cached
+            : undefined;
+        const generationSeed =
+          reusableCached?.generationSeed ?? nextGenerationSeed;
+        const fingerprint = createSegmentFingerprint({
+          ...fingerprintInput,
+          generationSeed,
+        });
+        const baselineKey = baselineKeys[index]!;
+        const segmentRequest: StableGenerationRequest = {
+          requestId: segmentId,
+          title: request.title,
+          modelId: request.modelId,
+          voiceId: segment.voiceId,
+          text: preparedText,
+          expression: segment.expression ?? "自然、清晰",
+          language: request.language,
+          emotion: segment.emotion ?? request.emotion,
+          speed: segment.speed ?? request.speed,
+          volume: request.volume,
+          format: request.format,
+          presetId: request.presetId,
+          pronunciationRules: [],
+          voxMode: request.voxMode,
+          voiceDescription: request.voiceDescription,
+          retryEpoch: request.retryEpoch,
+          regenerationId: request.regenerationId,
+          longForm,
+          generationSeed,
+        };
+        if (reusableCached) {
+          durationSeconds += reusableCached.durationSeconds;
           completedSegments += 1;
           checkedSegments += 1;
-          const chineseUnits = Array.from(
-            preparedText.matchAll(/[\p{Script=Han}]/gu),
-          ).length;
-          if (chineseUnits >= 4) {
-            const cachedPace = cached.durationSeconds / chineseUnits;
-            paceBaseline =
-              paceBaseline === undefined
-                ? cachedPace
-                : paceBaseline * 0.72 + cachedPace * 0.28;
-          }
+          if (reusableCached.retried) retriedSegments += 1;
+          if (reusableCached.assessment.issues.length) warningSegments += 1;
+          baselineTracker.observe(
+            baselineKey,
+            reusableCached.assessment,
+            Math.min(3, baselineCounts.get(baselineKey) ?? 3),
+          );
+          completedStates.push({
+            cacheId,
+            segmentId,
+            fingerprint,
+            generationSeed,
+            baselineKey,
+            request: segmentRequest,
+            voice,
+            durationSeconds: reusableCached.durationSeconds,
+            assessment: reusableCached.assessment,
+            retried: reusableCached.retried,
+          });
           this.updateSnapshot({
             status: "generating",
             progress:
@@ -1483,8 +1670,6 @@ class ModelEngine {
         await rm(path.join(this.outputRoot, `${segmentId}.mp3`), {
           force: true,
         });
-        const voice = voiceSources.get(segment.voiceId);
-        if (!voice) throw new Error("VOICE_SAMPLE_NOT_FOUND");
         this.updateSnapshot({
           status: "generating",
           progress: 15 + Math.round((index / request.segments.length) * 70),
@@ -1493,47 +1678,110 @@ class ModelEngine {
         const recovered = await this.generateCheckedSegmentWithRecovery(
           worker,
           segmentId,
-          {
-            requestId: segmentId,
-            title: request.title,
-            modelId: request.modelId,
-            voiceId: segment.voiceId,
-            text: preparedText,
-            expression: segment.expression ?? "自然、清晰",
-            language: request.language,
-            emotion: segment.emotion ?? request.emotion,
-            speed: segment.speed ?? request.speed,
-            volume: request.volume,
-            format: request.format,
-            presetId: request.presetId,
-            pronunciationRules: [],
-            voxMode: request.voxMode,
-            voiceDescription: request.voiceDescription,
-          },
+          segmentRequest,
           voice,
-          paceBaseline,
+          baselineTracker.get(baselineKey),
         );
         worker = recovered.worker;
         const generated = recovered.generated;
         checkedSegments += 1;
         if (generated.retried) retriedSegments += 1;
         if (generated.assessment.issues.length) warningSegments += 1;
-        if (generated.assessment.secondsPerUnit !== undefined) {
-          paceBaseline =
-            paceBaseline === undefined
-              ? generated.assessment.secondsPerUnit
-              : paceBaseline * 0.72 +
-                generated.assessment.secondsPerUnit * 0.28;
-        }
+        baselineTracker.observe(
+          baselineKey,
+          generated.assessment,
+          Math.min(3, baselineCounts.get(baselineKey) ?? 3),
+        );
         durationSeconds += generated.durationSeconds;
         completedSegments += 1;
-        cache.segments[cacheId] = {
+        const completedState: CompletedSegmentState = {
+          cacheId,
+          segmentId,
           fingerprint,
+          generationSeed,
+          baselineKey,
+          request: segmentRequest,
+          voice,
           durationSeconds: generated.durationSeconds,
-          fileId: segmentId,
+          assessment: generated.assessment,
+          retried: generated.retried,
         };
-        await this.writeBatchCache(cache);
+        completedStates.push(completedState);
+        await persistSegmentState(completedState);
       }
+      if (longForm) {
+        this.updateSnapshot({
+          status: "generating",
+          progress: 87,
+          message: "正在复核开头几段的语速和音高…",
+        });
+        const reviewedKeys = new Set<string>();
+        for (const state of completedStates) {
+          if (reviewedKeys.has(state.baselineKey)) continue;
+          reviewedKeys.add(state.baselineKey);
+          const baseline = baselineTracker.get(state.baselineKey);
+          if (!baseline) continue;
+          const calibrationCount = Math.min(
+            3,
+            baselineCounts.get(state.baselineKey) ?? 3,
+          );
+          const calibrationStates = completedStates
+            .filter(
+              (candidate) =>
+                candidate.baselineKey === state.baselineKey &&
+                !candidate.assessment.critical &&
+                candidate.assessment.issues.length === 0,
+            )
+            .slice(0, calibrationCount);
+          for (const calibrationState of calibrationStates) {
+            const metrics = await this.inspectGeneratedAudio(
+              calibrationState.segmentId,
+            );
+            calibrationState.durationSeconds = metrics.durationSeconds;
+            calibrationState.assessment = assessGeneratedAudio(
+              metrics,
+              calibrationState.request.text,
+              "careful",
+              baseline.secondsPerUnit,
+              baseline.medianPitchHz,
+              calibrationState.request.speed,
+              calibrationState.request.modelId,
+              true,
+            );
+            if (calibrationState.assessment.issues.length > 0) {
+              completedSegments = Math.max(0, completedSegments - 1);
+              await rm(
+                path.join(this.outputRoot, `${calibrationState.segmentId}.mp3`),
+                { force: true },
+              );
+              const recovered = await this.generateCheckedSegmentWithRecovery(
+                worker,
+                calibrationState.segmentId,
+                calibrationState.request,
+                calibrationState.voice,
+                baseline,
+                true,
+              );
+              worker = recovered.worker;
+              calibrationState.durationSeconds =
+                recovered.generated.durationSeconds;
+              calibrationState.assessment = recovered.generated.assessment;
+              calibrationState.retried = true;
+              completedSegments += 1;
+            }
+            await persistSegmentState(calibrationState);
+          }
+        }
+      }
+      durationSeconds = completedStates.reduce(
+        (sum, state) => sum + state.durationSeconds,
+        0,
+      );
+      checkedSegments = completedStates.length;
+      retriedSegments = completedStates.filter((state) => state.retried).length;
+      warningSegments = completedStates.filter(
+        (state) => state.assessment.issues.length > 0,
+      ).length;
       this.updateSnapshot({
         status: "generating",
         progress: 90,
@@ -1585,7 +1833,7 @@ class ModelEngine {
               ? `${skippedSegmentCount ? `已跳过 ${skippedSegmentCount} 句；` : ""}已自动重做 ${retriedSegments} 段，检查通过。`
               : skippedSegmentCount
                 ? `已按朗读规则跳过 ${skippedSegmentCount} 句，其余音频检查通过。`
-                : "已完成逐段音量、静音和语速检查。",
+                : "已完成逐段音量、静音、语速和稳定性检查。",
         },
       };
       await this.recordResult(result);
@@ -1622,13 +1870,25 @@ class ModelEngine {
   private async generateWithWorker(
     worker: WorkerConnection,
     jobId: string,
-    request: GenerationRequest,
+    request: StableGenerationRequest,
     voice: GenerationVoiceSource,
   ): Promise<{ durationSeconds: number }> {
     const capabilities = getModelGenerationCapabilities(
       request.modelId,
       request.language,
     );
+    const generationSeed =
+      request.generationSeed ??
+      createStableGenerationSeed({
+        version: GENERATION_STABILITY_VERSION,
+        requestId: request.requestId,
+        text: request.text,
+        voiceId: request.voiceId,
+        ...(request.retryEpoch ? { retryEpoch: request.retryEpoch } : {}),
+        ...(request.regenerationId
+          ? { regenerationId: request.regenerationId }
+          : {}),
+      });
     const generated = await this.workerRequest(
       worker,
       "/generate",
@@ -1644,6 +1904,12 @@ class ModelEngine {
         referenceText: voice.referenceText,
         voxMode: request.voxMode,
         voiceDescription: request.voiceDescription,
+        ...(request.modelId === "voxcpm2"
+          ? {
+              longForm: Boolean(request.longForm),
+              generationSeed,
+            }
+          : {}),
       },
       2 * 60 * 60 * 1_000,
       this.generationAbort?.signal,
@@ -1673,9 +1939,10 @@ class ModelEngine {
   private async generateCheckedSegmentWithRecovery(
     worker: WorkerConnection,
     jobId: string,
-    request: GenerationRequest,
+    request: StableGenerationRequest,
     voice: GenerationVoiceSource,
-    baselineSecondsPerUnit?: number,
+    baseline?: FrozenQualityBaseline,
+    calibration = false,
   ): Promise<{ generated: CheckedGeneration; worker: WorkerConnection }> {
     try {
       return {
@@ -1684,7 +1951,8 @@ class ModelEngine {
           jobId,
           request,
           voice,
-          baselineSecondsPerUnit,
+          baseline,
+          calibration,
         ),
         worker,
       };
@@ -1706,7 +1974,8 @@ class ModelEngine {
           jobId,
           request,
           voice,
-          baselineSecondsPerUnit,
+          baseline,
+          calibration,
         ),
         worker: restarted,
       };
@@ -1716,18 +1985,24 @@ class ModelEngine {
   private async generateCheckedSegment(
     worker: WorkerConnection,
     jobId: string,
-    request: GenerationRequest,
+    request: StableGenerationRequest,
     voice: GenerationVoiceSource,
-    baselineSecondsPerUnit?: number,
+    baseline?: FrozenQualityBaseline,
+    calibration = false,
   ): Promise<CheckedGeneration> {
-    const mode = qualityModeFor(request);
+    const mode = generationQualityModeFor(request);
     await this.generateWithWorker(worker, jobId, request, voice);
     let bestMetrics = await this.inspectGeneratedAudio(jobId);
     let bestAssessment = assessGeneratedAudio(
       bestMetrics,
       request.text,
       mode,
-      baselineSecondsPerUnit,
+      baseline?.secondsPerUnit,
+      request.modelId === "voxcpm2" ? baseline?.medianPitchHz : undefined,
+      request.speed,
+      request.modelId,
+      calibration,
+      request.longForm ? baseline?.previousPitchHz : undefined,
     );
     let retried = false;
     const retryCount = request.preview ? 1 : mode === "careful" ? 2 : 1;
@@ -1743,7 +2018,27 @@ class ModelEngine {
       await this.generateWithWorker(
         worker,
         retryId,
-        { ...request, requestId: retryId },
+        {
+          ...request,
+          requestId: retryId,
+          generationSeed: deriveRetryGenerationSeed(
+            request.generationSeed ??
+              createStableGenerationSeed({
+                version: GENERATION_STABILITY_VERSION,
+                requestId: request.requestId,
+                text: request.text,
+                voiceId: request.voiceId,
+                ...(request.retryEpoch
+                  ? { retryEpoch: request.retryEpoch }
+                  : {}),
+                ...(request.regenerationId
+                  ? { regenerationId: request.regenerationId }
+                  : {}),
+              }),
+            attempt,
+            request.requestId,
+          ),
+        },
         voice,
       );
       const candidateMetrics = await this.inspectGeneratedAudio(retryId);
@@ -1751,9 +2046,14 @@ class ModelEngine {
         candidateMetrics,
         request.text,
         mode,
-        baselineSecondsPerUnit,
+        baseline?.secondsPerUnit,
+        request.modelId === "voxcpm2" ? baseline?.medianPitchHz : undefined,
+        request.speed,
+        request.modelId,
+        calibration,
+        request.longForm ? baseline?.previousPitchHz : undefined,
       );
-      if (candidateAssessment.score < bestAssessment.score) {
+      if (isAssessmentBetter(candidateAssessment, bestAssessment)) {
         await cp(
           path.join(this.outputRoot, `${retryId}.mp3`),
           path.join(this.outputRoot, `${jobId}.mp3`),
@@ -1764,7 +2064,10 @@ class ModelEngine {
       await rm(path.join(this.outputRoot, `${retryId}.mp3`), { force: true });
     }
 
-    if (bestAssessment.critical) {
+    if (
+      bestAssessment.critical ||
+      (calibration && bestAssessment.issues.length > 0)
+    ) {
       await rm(path.join(this.outputRoot, `${jobId}.mp3`), { force: true });
       throw new Error("AUDIO_QUALITY_CHECK_FAILED");
     }
@@ -1823,6 +2126,14 @@ class ModelEngine {
     if (fields.some((field) => typeof metrics[field] !== "number")) {
       throw new Error("INVALID_AUDIO_INSPECTION");
     }
+    if (
+      metrics.medianPitchHz !== undefined &&
+      (typeof metrics.medianPitchHz !== "number" ||
+        !Number.isFinite(metrics.medianPitchHz) ||
+        metrics.medianPitchHz <= 0)
+    ) {
+      throw new Error("INVALID_AUDIO_INSPECTION");
+    }
     return metrics as GeneratedAudioMetrics;
   }
 
@@ -1874,31 +2185,19 @@ class ModelEngine {
     );
   }
 
-  private async readBatchCache(projectId: string): Promise<BatchCacheManifest> {
+  private async readBatchCache(
+    projectId: string,
+  ): Promise<BatchCacheManifestV2> {
     const filePath = this.batchCachePath(projectId);
     const cache = await readResilientJson(
       filePath,
-      (value): value is BatchCacheManifest => {
-        if (
-          !isUnknownRecord(value) ||
-          value.projectId !== projectId ||
-          !isUnknownRecord(value.segments)
-        ) {
-          return false;
-        }
-        return Object.values(value.segments).every(
-          (segment) =>
-            isUnknownRecord(segment) &&
-            typeof segment.fingerprint === "string" &&
-            typeof segment.durationSeconds === "number" &&
-            typeof segment.fileId === "string",
-        );
-      },
+      (value): value is BatchCacheManifestV2 =>
+        isBatchCacheManifestV2(value, projectId),
     );
-    return cache ?? { projectId, segments: {} };
+    return cache ?? emptyBatchCache(projectId);
   }
 
-  private async writeBatchCache(cache: BatchCacheManifest): Promise<void> {
+  private async writeBatchCache(cache: BatchCacheManifestV2): Promise<void> {
     await writeResilientJson(this.batchCachePath(cache.projectId), cache);
   }
 
@@ -2229,6 +2528,9 @@ export class LocalVoiceEngine {
     if (task.status === "running" || task.status === "queued")
       return this.publicTask(task);
     await this.assertTaskCanStart(task.command);
+    task.command.request.retryEpoch = nextGenerationRetryEpoch(
+      task.command.request.retryEpoch,
+    );
     Object.assign(task, {
       status: "queued" as const,
       progress: task.currentSegment > 0 ? task.progress : 0,

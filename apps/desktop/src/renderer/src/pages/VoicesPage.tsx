@@ -40,6 +40,7 @@ import { PageHeader } from "../components/PageHeader";
 import { desktopApi } from "../lib/desktopApi";
 import { getUserErrorMessage } from "../lib/errorMessage";
 import { createDefaultVoiceName } from "../lib/projectNaming";
+import { getReferenceDurationGuidance } from "../lib/referenceAudioGuidance";
 import { useStudioStore } from "../store/studioStore";
 
 export const VoicesPage = () => {
@@ -74,6 +75,18 @@ export const VoicesPage = () => {
   const [managedSampleDragging, setManagedSampleDragging] = useState(false);
   const voicePreviewRef = useRef<HTMLAudioElement>(null);
   const [previewingVoiceId, setPreviewingVoiceId] = useState("");
+  const sampleDurationGuidance = getReferenceDurationGuidance(
+    sampleQuality?.durationSeconds,
+  );
+  const managedDurationGuidance = getReferenceDurationGuidance(
+    managedSampleQuality?.durationSeconds,
+  );
+  const sampleInvalid = Boolean(
+    sampleQuality?.checks.some((check) => check.tone === "danger"),
+  );
+  const managedSampleInvalid = Boolean(
+    managedSampleQuality?.checks.some((check) => check.tone === "danger"),
+  );
 
   const openClone = useCallback(() => {
     setVoiceName(createDefaultVoiceName());
@@ -150,7 +163,7 @@ export const VoicesPage = () => {
   };
 
   const createVoice = async () => {
-    if (!voiceName.trim() || !sampleToken || busy) return;
+    if (!voiceName.trim() || !sampleToken || busy || sampleInvalid) return;
     setBusy(true);
     try {
       const voice = await desktopApi.voices.create({
@@ -275,7 +288,13 @@ export const VoicesPage = () => {
   };
 
   const addManagedSample = async () => {
-    if (!sampleVoice || !managedSampleToken || managedSampleBusy) return;
+    if (
+      !sampleVoice ||
+      !managedSampleToken ||
+      managedSampleBusy ||
+      managedSampleInvalid
+    )
+      return;
     setManagedSampleBusy(true);
     try {
       const updated = await desktopApi.voices.addSample({
@@ -541,7 +560,7 @@ export const VoicesPage = () => {
       <Modal
         open={cloneOpen}
         title="克隆声音"
-        description="准备一段 3–30 秒的清晰单人录音；录音原文只有完全对应时再填写。"
+        description="建议使用 5–15 秒清晰单人录音，30 秒以内更稳定。"
         onClose={closeClone}
         footer={
           <>
@@ -549,7 +568,9 @@ export const VoicesPage = () => {
               取消
             </Button>
             <Button
-              disabled={!voiceName.trim() || !sampleToken || busy}
+              disabled={
+                !voiceName.trim() || !sampleToken || busy || sampleInvalid
+              }
               onClick={() => void createVoice()}
             >
               <Mic2 className="h-4 w-4" />
@@ -601,7 +622,7 @@ export const VoicesPage = () => {
               <strong title={sampleName || "选择一段人声录音"}>
                 {sampleName || "选择一段人声录音"}
               </strong>
-              <p>点击选择或把音频拖到这里；建议 3–30 秒。</p>
+              <p>点击选择或直接拖入；5–15 秒最稳定。</p>
             </div>
             <button
               type="button"
@@ -633,7 +654,7 @@ export const VoicesPage = () => {
             onChange={(event) => setReferenceText(event.target.value)}
           />
           <p className="field-footnote">
-            留空也能克隆。填写准确原文后，才可以使用 VoxCPM2 的极致克隆。
+            留空可用可控克隆。极致克隆需要 30 秒内录音和完整准确的原文。
           </p>
           {sampleQuality ? (
             <div className="voice-quality-checks" aria-label="录音质量检查">
@@ -642,6 +663,11 @@ export const VoicesPage = () => {
                   {check.label}
                 </StatusBadge>
               ))}
+              {sampleDurationGuidance ? (
+                <StatusBadge tone={sampleDurationGuidance.tone}>
+                  {sampleDurationGuidance.label}
+                </StatusBadge>
+              ) : null}
               {sampleQuality.durationSeconds && referenceText.trim() ? (
                 <StatusBadge
                   tone={
@@ -690,6 +716,7 @@ export const VoicesPage = () => {
               disabled={
                 !managedSampleToken ||
                 managedSampleBusy ||
+                managedSampleInvalid ||
                 (sampleVoice?.referenceSamples?.length ?? 1) >= 5
               }
               onClick={() => void addManagedSample()}
@@ -784,7 +811,7 @@ export const VoicesPage = () => {
                   <strong title={managedSampleName || "添加另一段参考录音"}>
                     {managedSampleName || "添加另一段参考录音"}
                   </strong>
-                  <p>点击选择或直接拖入音频。</p>
+                  <p>点击选择或直接拖入；5–15 秒最稳定。</p>
                 </div>
                 <button
                   type="button"
@@ -817,6 +844,9 @@ export const VoicesPage = () => {
                   setManagedReferenceText(event.target.value)
                 }
               />
+              <p className="field-footnote">
+                留空可用可控克隆。极致克隆需要 30 秒内录音和完整准确的原文。
+              </p>
               {managedSampleQuality ? (
                 <div className="voice-quality-checks">
                   {managedSampleQuality.checks.map((check) => (
@@ -824,6 +854,11 @@ export const VoicesPage = () => {
                       {check.label}
                     </StatusBadge>
                   ))}
+                  {managedDurationGuidance ? (
+                    <StatusBadge tone={managedDurationGuidance.tone}>
+                      {managedDurationGuidance.label}
+                    </StatusBadge>
+                  ) : null}
                 </div>
               ) : null}
             </>

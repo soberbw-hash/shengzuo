@@ -10,6 +10,7 @@ sys.path.insert(0, str(WORKER_ROOT))
 from prompting import (  # noqa: E402
     build_voice_design_text,
     prepare_target_text,
+    prepare_voice_design_chunk,
     reference_text_is_plausible,
 )
 
@@ -55,9 +56,26 @@ class PromptingTests(unittest.TestCase):
         self.assertEqual(prepared.count("("), 1)
         self.assertEqual(prepared.count(")"), 1)
 
+    def test_voice_design_description_is_used_only_for_the_first_chunk(self) -> None:
+        first_text = "这是真实的第一段正文。"
+        first_target, first_prompt = prepare_voice_design_chunk(
+            first_text, "温暖沉稳的女声", 0, first_text
+        )
+        next_target, next_prompt = prepare_voice_design_chunk(
+            "这是后续正文。", "温暖沉稳的女声", 1, first_text
+        )
+        self.assertEqual(first_target, f"(温暖沉稳的女声){first_text}")
+        self.assertIsNone(first_prompt)
+        self.assertEqual(next_target, "这是后续正文。")
+        self.assertEqual(next_prompt, first_text)
+
     def test_ultimate_cloning_rejects_an_obviously_incomplete_transcript(self) -> None:
         self.assertFalse(reference_text_is_plausible("你好", 8.0))
         self.assertTrue(reference_text_is_plausible("大家好，这是我的参考录音原文", 8.0))
+        self.assertTrue(reference_text_is_plausible("こんにちは、音声の確認です", 5.0))
+        self.assertTrue(reference_text_is_plausible("안녕하세요 음성 확인입니다", 5.0))
+        self.assertTrue(reference_text_is_plausible("مرحبا هذا اختبار صوتي", 5.0))
+        self.assertFalse(reference_text_is_plausible("……？！", 5.0))
 
 
 if __name__ == "__main__":

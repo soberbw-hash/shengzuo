@@ -617,7 +617,7 @@ export const DialoguePage = () => {
     return project;
   };
 
-  const generate = async () => {
+  const generate = async (regenerationId?: string) => {
     if (!projectTitle.trim()) {
       store.pushToast({
         title: "请先新建项目",
@@ -675,6 +675,7 @@ export const DialoguePage = () => {
         sourceText: project.sourceText,
         presetId: store.presetId,
         pronunciationRules: store.pronunciationRules,
+        regenerationId,
       };
       const task = await desktopApi.tasks.enqueue({
         type: "generate-batch",
@@ -1136,7 +1137,9 @@ export const DialoguePage = () => {
                 compact
                 result={visibleResult}
                 onRegenerate={() =>
-                  void (visibleResult.preview ? preview() : generate())
+                  void (visibleResult.preview
+                    ? preview()
+                    : generate(crypto.randomUUID()))
                 }
               />
             </div>

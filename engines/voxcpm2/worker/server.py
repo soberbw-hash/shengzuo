@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import random
 import re
 import secrets
 import subprocess
@@ -19,13 +20,24 @@ if str(WORKER_ROOT) not in sys.path:
 
 from prompting import (
     DIALECT_NAMES,
-    build_voice_design_text,
     prepare_target_text,
+    prepare_voice_design_chunk,
     reference_text_is_plausible,
 )
-from pacing import pace_correction, seconds_per_unit, split_for_stable_pacing
+from pacing import (
+    calibration_baseline,
+    pace_correction,
+    seconds_per_unit,
+    split_for_stable_pacing,
+)
+from reference_audio import (
+    analyze_reference_windows,
+    choose_stable_reference_window,
+    reference_duration_error,
+)
 
 MAX_REQUEST_BYTES = 128 * 1024
+DEFAULT_GENERATION_SEED = 3407
 JOB_ID_PATTERN = re.compile(r"^[a-zA-Z0-9-]{1,120}$")
 SUPPORTED_LANGUAGES = {
     "auto", "zh", "en", "ja", "ko", "ar", "my", "da", "nl", "fi",
@@ -35,6 +47,59 @@ SUPPORTED_LANGUAGES = {
     "dialect-shaanxi", "dialect-shandong", "dialect-sichuan",
     "dialect-tianjin", "dialect-wu",
 }
+
+
+def parse_long_form(value: object) -> bool:
+    if not isinstance(value, bool):
+        raise RuntimeError("INVALID_LONG_FORM")
+    return value
+
+
+def parse_generation_seed(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise RuntimeError("INVALID_GENERATION_SEED")
+    if value < 0 or value > 0xFFFFFFFF:
+        raise RuntimeError("INVALID_GENERATION_SEED")
+    return value
+
+
+def should_use_long_form(text: str, requested: bool) -> bool:
+    """Keep ordinary short takes whole; stabilize unexpectedly large direct calls."""
+
+    visible_length = sum(not character.isspace() for character in text)
+    return requested or visible_length > 70
+
+
+def seed_generation(torch_module: Any, numpy_module: Any, seed: int) -> None:
+    """Match VoxCPM's official deterministic request setup."""
+
+    random.seed(seed)
+    numpy_module.random.seed(seed)
+    torch_module.manual_seed(seed)
+    if torch_module.cuda.is_available():
+        torch_module.cuda.manual_seed_all(seed)
+
+
+def badcase_ratio_threshold(text: str, long_form: bool) -> float:
+    """Tighten runaway-audio detection without truncating Latin-language text."""
+
+    if not long_form:
+        return 6.0
+    meaningful = [character for character in text if character.isalnum()]
+    if not meaningful:
+        return 3.2
+    cjk_count = sum("\u3400" <= character <= "\u9fff" for character in meaningful)
+    return 3.2 if cjk_count / len(meaningful) >= 0.25 else 5.0
+
+
+def retry_target_pace(
+    baseline_pace: float | None, provisional_pace: float | None
+) -> float:
+    """Prefer the preceding chunk while the frozen baseline is forming."""
+
+    return baseline_pace or provisional_pace or 0.22
+
+
 def is_within(candidate: Path, root: Path) -> bool:
     try:
         candidate.resolve().relative_to(root.resolve())
@@ -67,6 +132,12 @@ class WorkerState:
         self.model: Any | None = None
         self.device = "not-loaded"
         self.lock = threading.RLock()
+        # Normalized/selected PCM is cached in memory for repeated long-form
+        # chunk requests. The source path is never modified and the cache is
+        # bounded so changing voices cannot grow the worker indefinitely.
+        self.reference_cache: dict[
+            tuple[str, int, int, str], tuple[Any, int, float]
+        ] = {}
 
     def load(self) -> dict[str, str]:
         with self.lock:
@@ -98,6 +169,7 @@ class WorkerState:
             import imageio_ffmpeg
             import numpy as np
             import soundfile as sf
+            import torch
 
             job_id = str(payload.get("jobId", ""))
             if not JOB_ID_PATTERN.fullmatch(job_id):
@@ -112,6 +184,12 @@ class WorkerState:
             volume = float(payload.get("volume", 100.0))
             if speed < 0.5 or speed > 2.0 or volume < 0 or volume > 150:
                 raise RuntimeError("INVALID_AUDIO_SETTINGS")
+            long_form = should_use_long_form(
+                text, parse_long_form(payload.get("longForm", False))
+            )
+            generation_seed = parse_generation_seed(
+                payload.get("generationSeed", DEFAULT_GENERATION_SEED)
+            )
 
             vox_mode = str(payload.get("voxMode", "controlled"))
             if vox_mode not in {"controlled", "ultimate", "design"}:
@@ -136,7 +214,12 @@ class WorkerState:
                 raise RuntimeError("INVALID_REFERENCE_TEXT")
 
             expression = str(payload.get("expression", "")).strip()[:200]
-            text_chunks = split_for_stable_pacing(text)
+            normalized_text = re.sub(r"\s+", " ", text.replace("\r", " ")).strip()
+            text_chunks = (
+                split_for_stable_pacing(normalized_text)
+                if long_form
+                else [normalized_text]
+            )
             if not text_chunks:
                 raise RuntimeError("INVALID_TEXT")
 
@@ -151,39 +234,125 @@ class WorkerState:
                 normalized_reference: Path | None = None
                 raw_output = temporary / "generated.wav"
                 if reference_audio is not None:
-                    normalized_reference = temporary / "reference.wav"
-                    subprocess.run(
-                        [
-                            ffmpeg, "-y", "-hide_banner", "-loglevel", "error",
-                            "-i", str(reference_audio), "-ac", "1", "-ar", "48000",
-                            str(normalized_reference),
-                        ],
-                        check=True,
-                        capture_output=True,
+                    source_stat = reference_audio.stat()
+                    cache_key = (
+                        str(reference_audio),
+                        source_stat.st_size,
+                        source_stat.st_mtime_ns,
+                        vox_mode,
                     )
-                    reference_info = sf.info(normalized_reference)
-                    if reference_info.duration < 3 or reference_info.duration > 60:
-                        raise RuntimeError("VOICE_SAMPLE_DURATION")
-                    if vox_mode == "ultimate" and not reference_text_is_plausible(
-                        reference_text, reference_info.duration
-                    ):
-                        raise RuntimeError("REFERENCE_TEXT_MISMATCH")
+                    cached_reference = self.reference_cache.get(cache_key)
+                    normalized_reference = temporary / "reference.wav"
+                    if cached_reference is not None:
+                        (
+                            selected_samples,
+                            reference_rate,
+                            original_duration,
+                        ) = cached_reference
+                    else:
+                        converted_reference = temporary / "reference-source.wav"
+                        subprocess.run(
+                            [
+                                ffmpeg,
+                                "-y",
+                                "-hide_banner",
+                                "-loglevel",
+                                "error",
+                                "-i",
+                                str(reference_audio),
+                                "-ac",
+                                "1",
+                                "-ar",
+                                "16000",
+                                str(converted_reference),
+                            ],
+                            check=True,
+                            capture_output=True,
+                        )
+                        reference_info = sf.info(converted_reference)
+                        original_duration = reference_info.duration
+                        source_samples, reference_rate = sf.read(
+                            converted_reference,
+                            dtype="float32",
+                            always_2d=False,
+                        )
+                        selected_samples = np.asarray(
+                            source_samples, dtype=np.float32
+                        ).reshape(-1)
+
+                    duration_error = reference_duration_error(
+                        original_duration,
+                        ultimate=vox_mode == "ultimate",
+                    )
+                    if duration_error is not None:
+                        raise RuntimeError(duration_error)
+                    if vox_mode == "ultimate":
+                        # Ultimate clone depends on an exact audio/transcript pair.
+                        # Never crop it silently: doing so would make prompt_text
+                        # describe audio that is no longer present.
+                        if not reference_text_is_plausible(
+                            reference_text, original_duration
+                        ):
+                            raise RuntimeError("REFERENCE_TEXT_MISMATCH")
+                    elif cached_reference is None:
+                        candidates = analyze_reference_windows(
+                            selected_samples,
+                            int(reference_rate),
+                            original_duration,
+                        )
+                        selected = choose_stable_reference_window(
+                            original_duration, candidates
+                        )
+                        if selected is None:
+                            raise RuntimeError("VOICE_SAMPLE_QUALITY_LOW")
+                        selected_start = int(
+                            round(selected.start_seconds * reference_rate)
+                        )
+                        selected_end = selected_start + int(
+                            round(selected.duration_seconds * reference_rate)
+                        )
+                        selected_samples = selected_samples[
+                            selected_start:selected_end
+                        ].copy()
+
+                    if cached_reference is None:
+                        if len(self.reference_cache) >= 8:
+                            self.reference_cache.pop(next(iter(self.reference_cache)))
+                        self.reference_cache[cache_key] = (
+                            selected_samples.copy(),
+                            int(reference_rate),
+                            original_duration,
+                        )
+                    sf.write(
+                        normalized_reference,
+                        selected_samples,
+                        int(reference_rate),
+                    )
 
                 sample_rate = int(self.model.tts_model.sample_rate)
                 generated_chunks: list[np.ndarray] = []
-                baseline_pace: float | None = None
+                calibration_paces: list[float] = []
                 pace_retries = 0
                 pace_corrections = 0
+                design_prompt = temporary / "design-prompt.wav"
+                seed_generation(torch, np, generation_seed)
 
                 for index, chunk in enumerate(text_chunks):
                     if vox_mode == "design":
                         dialect = DIALECT_NAMES.get(language)
                         design_description = ", ".join(
-                            item for item in (dialect, voice_description) if item
+                            item
+                            for item in (dialect, voice_description)
+                            if item
                         )
                         try:
-                            target_text = build_voice_design_text(
-                                chunk, design_description
+                            target_text, design_prompt_text = (
+                                prepare_voice_design_chunk(
+                                    chunk,
+                                    design_description,
+                                    index,
+                                    text_chunks[0],
+                                )
                             )
                         except ValueError as error:
                             raise RuntimeError(str(error)) from error
@@ -199,10 +368,13 @@ class WorkerState:
                         # 首次生成时联网拉取 WeText，离线环境中反而会导致整次失败。
                         "normalize": False,
                         "denoise": False,
-                        "cfg_value": 2.0,
+                        "cfg_value": 1.6 if long_form else 2.0,
                         "inference_timesteps": 10,
                         "retry_badcase": True,
                         "retry_badcase_max_times": 3,
+                        "retry_badcase_ratio_threshold": badcase_ratio_threshold(
+                            chunk, long_form
+                        ),
                     }
                     if normalized_reference is not None:
                         generation_options["reference_wav_path"] = str(
@@ -210,8 +382,13 @@ class WorkerState:
                         )
                     # 极致克隆是显式模式：只有逐字稿经过长度校验后才进入续写路径。
                     if vox_mode == "ultimate" and normalized_reference is not None:
-                        generation_options["prompt_wav_path"] = str(normalized_reference)
+                        generation_options["prompt_wav_path"] = str(
+                            normalized_reference
+                        )
                         generation_options["prompt_text"] = reference_text
+                    elif vox_mode == "design" and index > 0:
+                        generation_options["prompt_wav_path"] = str(design_prompt)
+                        generation_options["prompt_text"] = design_prompt_text
 
                     waveform = np.asarray(
                         self.model.generate(**generation_options), dtype=np.float32
@@ -219,37 +396,67 @@ class WorkerState:
                     if waveform.size == 0:
                         raise RuntimeError("EMPTY_GENERATION")
                     chunk_pace = seconds_per_unit(waveform.size / sample_rate, chunk)
+                    baseline_pace = calibration_baseline(calibration_paces)
+                    provisional_pace = (
+                        calibration_paces[-1]
+                        if baseline_pace is None and calibration_paces
+                        else None
+                    )
+                    comparison_pace = baseline_pace or provisional_pace
+                    fast_ratio = 0.75 if baseline_pace is not None else 0.65
+                    slow_ratio = 1.50 if baseline_pace is not None else 1.55
 
-                    is_unusually_fast = (
+                    is_pace_outlier = (
                         chunk_pace is not None
                         and (
-                            chunk_pace < 0.11
+                            chunk_pace < 0.10
+                            or chunk_pace > 0.42
                             or (
-                                baseline_pace is not None
-                                and chunk_pace < baseline_pace * 0.78
+                                comparison_pace is not None
+                                and (
+                                    chunk_pace < comparison_pace * fast_ratio
+                                    or chunk_pace > comparison_pace * slow_ratio
+                                )
                             )
                         )
                     )
-                    if is_unusually_fast:
+                    if is_pace_outlier:
                         retry_waveform = np.asarray(
                             self.model.generate(**generation_options), dtype=np.float32
                         ).reshape(-1)
                         retry_pace = seconds_per_unit(
                             retry_waveform.size / sample_rate, chunk
                         )
-                        if retry_waveform.size and (
-                            retry_pace is not None
-                            and (chunk_pace is None or retry_pace > chunk_pace)
-                        ):
-                            waveform = retry_waveform
-                            chunk_pace = retry_pace
+                        target_pace = retry_target_pace(
+                            baseline_pace, provisional_pace
+                        )
+                        if retry_waveform.size and retry_pace is not None:
+                            current_distance = abs(chunk_pace - target_pace)
+                            retry_distance = abs(retry_pace - target_pace)
+                            if retry_distance < current_distance:
+                                waveform = retry_waveform
+                                chunk_pace = retry_pace
                         pace_retries += 1
 
-                    if baseline_pace is None and chunk_pace is not None:
-                        baseline_pace = max(0.14, min(0.35, chunk_pace))
+                    if baseline_pace is not None and chunk_pace is not None:
+                        remaining_ratio = chunk_pace / baseline_pace
+                        if remaining_ratio < 0.72 or remaining_ratio > 1.50:
+                            raise RuntimeError("PACING_STABILITY_FAILED")
+                    elif provisional_pace is not None and chunk_pace is not None:
+                        provisional_ratio = chunk_pace / provisional_pace
+                        if provisional_ratio < 0.65 or provisional_ratio > 1.55:
+                            raise RuntimeError("PACING_STABILITY_FAILED")
+                    elif (
+                        long_form
+                        and chunk_pace is not None
+                        and (chunk_pace < 0.10 or chunk_pace > 0.42)
+                    ):
+                        # Do not let an extreme opening chunk become part of the
+                        # finished take before a stable cross-chunk baseline exists.
+                        raise RuntimeError("PACING_STABILITY_FAILED")
 
                     correction = pace_correction(baseline_pace, chunk_pace)
-                    if correction < 0.999:
+                    if abs(correction - 1.0) > 0.001:
                         chunk_input = temporary / f"chunk-{index}.wav"
                         chunk_output = temporary / f"chunk-{index}-stable.wav"
                         sf.write(chunk_input, waveform, sample_rate)
@@ -270,12 +477,13 @@ class WorkerState:
                         pace_corrections += 1
                     if chunk_pace is not None:
                         effective_pace = chunk_pace / correction
-                        bounded_pace = max(0.14, min(0.35, effective_pace))
-                        baseline_pace = (
-                            bounded_pace
-                            if baseline_pace is None
-                            else baseline_pace * 0.82 + bounded_pace * 0.18
-                        )
+                        if (
+                            0.10 <= effective_pace <= 0.42
+                            and len(calibration_paces) < 3
+                        ):
+                            calibration_paces.append(effective_pace)
+                    if vox_mode == "design" and index == 0:
+                        sf.write(design_prompt, waveform, sample_rate)
                     fade_samples = min(int(sample_rate * 0.012), waveform.size // 2)
                     if fade_samples > 1:
                         fade = np.sin(
@@ -424,7 +632,9 @@ def main() -> None:
         raise SystemExit(2)
 
     os.environ.setdefault("HF_HUB_OFFLINE", "1")
-    state = WorkerState(Path(args.weights), Path(args.voice_root), Path(args.output_root))
+    state = WorkerState(
+        Path(args.weights), Path(args.voice_root), Path(args.output_root)
+    )
     server = VoiceWorkerServer(("127.0.0.1", args.port), state, args.boot_token)
     server.serve_forever(poll_interval=0.25)
 

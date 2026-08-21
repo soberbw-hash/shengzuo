@@ -73,6 +73,7 @@ import {
   saveCreationDraft,
   type SingleCreationDraft,
 } from "../lib/projectDrafts";
+import { isUltimateReferenceTooLong } from "../lib/referenceAudioGuidance";
 import { useStudioStore } from "../store/studioStore";
 
 const createInitialSnapshot = (): EngineSnapshot => ({
@@ -92,6 +93,8 @@ export const GeneratePage = () => {
   const [voxMode, setVoxMode] = useState<VoxVoiceMode>("controlled");
   const [voiceModeHint, setVoiceModeHint] = useState<VoxVoiceMode | null>(null);
   const [voiceDescription, setVoiceDescription] = useState("");
+  const [selectedVoiceDurationSeconds, setSelectedVoiceDurationSeconds] =
+    useState<number>();
   const [draggingScript, setDraggingScript] = useState(false);
   const [scriptView, setScriptView] = useState<"edit" | "annotations">("edit");
   const [resumePrompt, setResumePrompt] = useState(false);
@@ -105,6 +108,9 @@ export const GeneratePage = () => {
     createInitialSnapshot();
   const selectedVoice = store.voiceProfiles.find(
     (voice) => voice.id === store.selectedVoice,
+  );
+  const ultimateReferenceTooLong = isUltimateReferenceTooLong(
+    selectedVoiceDurationSeconds,
   );
   const supportedVoiceModes = MODEL_VOICE_MODE_SUPPORT[store.selectedModel];
   const displayedVoiceMode = supportedVoiceModes.includes(voxMode)
@@ -160,10 +166,33 @@ export const GeneratePage = () => {
       ? snapshot.result
       : undefined;
   useEffect(() => {
-    if (!MODEL_VOICE_MODE_SUPPORT[store.selectedModel].includes(voxMode)) {
+    if (
+      !MODEL_VOICE_MODE_SUPPORT[store.selectedModel].includes(voxMode) ||
+      (voxMode === "ultimate" && ultimateReferenceTooLong)
+    ) {
       setVoxMode("controlled");
     }
-  }, [store.selectedModel, voxMode]);
+  }, [store.selectedModel, ultimateReferenceTooLong, voxMode]);
+
+  useEffect(() => {
+    setSelectedVoiceDurationSeconds(undefined);
+    if (!selectedVoice?.previewUrl) return;
+
+    const audio = document.createElement("audio");
+    const readDuration = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) {
+        setSelectedVoiceDurationSeconds(audio.duration);
+      }
+    };
+    audio.preload = "metadata";
+    audio.addEventListener("loadedmetadata", readDuration);
+    audio.src = selectedVoice.previewUrl;
+    return () => {
+      audio.removeEventListener("loadedmetadata", readDuration);
+      audio.removeAttribute("src");
+      audio.load();
+    };
+  }, [selectedVoice?.id, selectedVoice?.previewUrl]);
 
   useEffect(() => {
     setScriptView(store.performanceSegments.length ? "annotations" : "edit");
@@ -488,7 +517,7 @@ export const GeneratePage = () => {
     return project;
   };
 
-  const generate = async () => {
+  const generate = async (regenerationId?: string) => {
     if (usesVoiceDesign && !voiceDescriptionReady) {
       store.pushToast({
         title: "先描述想要的声音",
@@ -501,6 +530,18 @@ export const GeneratePage = () => {
       store.pushToast({
         title: "先克隆一个声音",
         description: "当前没有可用声音，完成克隆后才能生成。",
+        tone: "warning",
+      });
+      return;
+    }
+    if (
+      store.selectedModel === "voxcpm2" &&
+      voxMode === "ultimate" &&
+      ultimateReferenceTooLong
+    ) {
+      store.pushToast({
+        title: "这段录音不适合极致克隆",
+        description: "请换用 30 秒内录音，或改用可控克隆。",
         tone: "warning",
       });
       return;
@@ -577,6 +618,7 @@ export const GeneratePage = () => {
             : undefined,
         voxMode: store.selectedModel === "voxcpm2" ? voxMode : undefined,
         voiceDescription: usesVoiceDesign ? voiceDescription.trim() : undefined,
+        regenerationId,
       };
       const task = await desktopApi.tasks.enqueue({
         type: "generate",
@@ -600,6 +642,18 @@ export const GeneratePage = () => {
 
   const preview = async () => {
     if (!hasVoiceSource || !previewText || !canGenerate || textTooLong) return;
+    if (
+      store.selectedModel === "voxcpm2" &&
+      voxMode === "ultimate" &&
+      ultimateReferenceTooLong
+    ) {
+      store.pushToast({
+        title: "这段录音不适合极致克隆",
+        description: "请换用 30 秒内录音，或改用可控克隆。",
+        tone: "warning",
+      });
+      return;
+    }
     if (
       store.selectedModel === "voxcpm2" &&
       voxMode === "ultimate" &&
@@ -764,13 +818,22 @@ export const GeneratePage = () => {
               aria-label="声音来源"
             >
               {VOX_VOICE_MODES.map((mode) => {
-                const supported = supportedVoiceModes.includes(mode.id);
-                const requiredModel = MODEL_CATALOG.find((model) =>
-                  MODEL_VOICE_MODE_SUPPORT[model.id].includes(mode.id),
-                );
-                const requirement = requiredModel
-                  ? `当前模型不支持，需要切换到 ${requiredModel.name}`
-                  : "当前模型暂不支持";
+                const modelSupported = supportedVoiceModes.includes(mode.id);
+                const recordingBlocked =
+                  store.selectedModel === "voxcpm2" &&
+                  mode.id === "ultimate" &&
+                  ultimateReferenceTooLong;
+                const supported = modelSupported && !recordingBlocked;
+                const requiredModel = modelSupported
+                  ? undefined
+                  : MODEL_CATALOG.find((model) =>
+                      MODEL_VOICE_MODE_SUPPORT[model.id].includes(mode.id),
+                    );
+                const requirement = recordingBlocked
+                  ? "当前录音超过 30 秒；请换短录音或使用可控克隆"
+                  : requiredModel
+                    ? `当前模型不支持，需要切换到 ${requiredModel.name}`
+                    : "当前模型暂不支持";
                 return (
                   <span
                     key={mode.id}
@@ -1221,7 +1284,9 @@ export const GeneratePage = () => {
                 compact
                 result={visibleResult}
                 onRegenerate={() =>
-                  void (visibleResult.preview ? preview() : generate())
+                  void (visibleResult.preview
+                    ? preview()
+                    : generate(crypto.randomUUID()))
                 }
               />
             </div>

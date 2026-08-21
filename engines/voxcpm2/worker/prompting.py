@@ -55,11 +55,24 @@ def build_voice_design_text(text: str, description: str) -> str:
     return f"({cleaned_description}){text}"
 
 
+def prepare_voice_design_chunk(
+    text: str,
+    description: str,
+    index: int,
+    first_chunk_text: str,
+) -> tuple[str, str | None]:
+    """Use description once, then continue from the first real text/audio pair."""
+
+    if index == 0:
+        return build_voice_design_text(text, description), None
+    if not first_chunk_text.strip():
+        raise ValueError("VOICE_DESCRIPTION_REQUIRED")
+    return text, first_chunk_text
+
+
 def reference_text_is_plausible(reference_text: str, duration_seconds: float) -> bool:
     """Reject clearly incomplete transcripts before Vox continuation cloning."""
-    meaningful_units = len(
-        re.findall(r"[A-Za-z0-9\u3400-\u9fff]", reference_text)
-    )
+    meaningful_units = sum(character.isalnum() for character in reference_text)
     minimum_units = max(4, int(duration_seconds + 0.999))
     maximum_units = int(duration_seconds * 14) + 20
     return minimum_units <= meaningful_units <= maximum_units

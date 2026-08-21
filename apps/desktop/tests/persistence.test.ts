@@ -89,10 +89,18 @@ void test("a task interrupted during generation is recovered into the queue", as
     };
     await store.save([task]);
     const recovered = await store.load();
-    assert.equal(recovered[0]?.status, "queued");
-    assert.match(recovered[0]?.message ?? "", /已经重新排队/u);
-    assert.equal(recovered[0]?.progress, 46);
-    assert.equal(recovered[0]?.currentSegment, 46);
+    const recoveredTask = recovered[0];
+    assert.ok(recoveredTask);
+    assert.equal(recoveredTask.status, "queued");
+    assert.match(recoveredTask.message, /已经重新排队/u);
+    assert.equal(recoveredTask.progress, 46);
+    assert.equal(recoveredTask.currentSegment, 46);
+    assert.equal(recoveredTask.command.request.retryEpoch, undefined);
+
+    recoveredTask.command.request.retryEpoch = 3;
+    await store.save(recovered);
+    const loadedAfterRetry = await store.load();
+    assert.equal(loadedAfterRetry[0]?.command.request.retryEpoch, 3);
 
     const persisted = JSON.parse(
       await readFile(path.join(root, "generation-tasks.json"), "utf8"),

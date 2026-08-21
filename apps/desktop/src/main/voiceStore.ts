@@ -581,6 +581,8 @@ export class VoiceStore {
     audioPath: string;
     referenceText: string;
     voiceName: string;
+    sampleId: string;
+    sampleSha256: string;
   }> {
     const stored = await this.readStored(voiceId);
     const sample = activeStoredSample(stored);
@@ -592,6 +594,8 @@ export class VoiceStore {
       audioPath,
       referenceText: sample.referenceText,
       voiceName: stored.name,
+      sampleId: sample.id,
+      sampleSha256: sample.sampleSha256,
     };
   }
 

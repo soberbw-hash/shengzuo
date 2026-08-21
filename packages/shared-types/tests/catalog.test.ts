@@ -8,6 +8,7 @@ import {
   isBatchGenerationRequest,
   isCreateVoiceProfileRequest,
   isEngineCommand,
+  isGenerationRequest,
   isExportNamingTemplate,
   isExportAudioRequest,
   isSetAudioFavoriteRequest,
@@ -23,6 +24,7 @@ import {
   isSaveProjectRequest,
   isSelectVoiceSampleRequest,
   LANGUAGE_OPTIONS,
+  MAX_GENERATION_RETRY_EPOCH,
   MODEL_CATALOG,
   MODEL_LANGUAGE_SUPPORT,
   MODEL_VOICE_MODE_SUPPORT,
@@ -546,6 +548,60 @@ void test("pronunciation rule guards support explicit skip actions and legacy re
   }
 });
 
+void test("generation request guards accept bounded retry epochs and legacy requests", () => {
+  const single = {
+    requestId: "retry-epoch-single",
+    title: "失败任务重试",
+    modelId: "voxcpm2",
+    voiceId: "voice-1234",
+    text: "重新生成这一段。",
+    expression: "自然、清晰",
+    language: "zh",
+    emotion: "自然",
+    speed: 1,
+    volume: 100,
+    format: "mp3",
+  } as const;
+  const batch = {
+    requestId: "retry-epoch-batch",
+    modelId: "voxcpm2",
+    segments: [{ id: "line-1", voiceId: "voice-1234", text: "第一句。" }],
+    language: "zh",
+    emotion: "自然",
+    speed: 1,
+    volume: 100,
+    pauseMs: 260,
+    format: "mp3",
+    title: "失败批量任务重试",
+    kind: "subtitles",
+  } as const;
+
+  assert.equal(isGenerationRequest(single), true);
+  assert.equal(isGenerationRequest({ ...single, retryEpoch: 1 }), true);
+  assert.equal(
+    isGenerationRequest({
+      ...single,
+      retryEpoch: MAX_GENERATION_RETRY_EPOCH,
+    }),
+    true,
+  );
+  assert.equal(isGenerationRequest({ ...single, retryEpoch: -1 }), false);
+  assert.equal(isGenerationRequest({ ...single, retryEpoch: 1.5 }), false);
+  assert.equal(
+    isGenerationRequest({
+      ...single,
+      retryEpoch: MAX_GENERATION_RETRY_EPOCH + 1,
+    }),
+    false,
+  );
+  assert.equal(isBatchGenerationRequest(batch), true);
+  assert.equal(isBatchGenerationRequest({ ...batch, retryEpoch: 4 }), true);
+  assert.equal(
+    isBatchGenerationRequest({ ...batch, retryEpoch: Number.NaN }),
+    false,
+  );
+});
+
 void test("Vox batch generation keeps an explicit mode and validates design descriptions", () => {
   const request = {
     requestId: "dialogue-vox-mode",
@@ -568,6 +624,13 @@ void test("Vox batch generation keeps an explicit mode and validates design desc
   } as const;
 
   assert.equal(isBatchGenerationRequest(request), true);
+  assert.equal(
+    isBatchGenerationRequest({
+      ...request,
+      segments: [...request.segments, { ...request.segments[0] }],
+    }),
+    false,
+  );
   assert.equal(
     isBatchGenerationRequest({ ...request, voxMode: "ultimate" }),
     true,

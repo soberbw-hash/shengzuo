@@ -47,9 +47,32 @@ void test("hard-splits a long sentence without punctuation", () => {
   const chunks = splitTextForSpeech(source, 60);
   assert.deepEqual(
     chunks.map((chunk) => chunk.length),
-    [60, 60, 25],
+    [49, 48, 48],
   );
   assert.equal(chunks.join(""), source);
+});
+
+void test("rebalances a tiny hard-split tail instead of generating it alone", () => {
+  const source = "甲".repeat(56);
+  const chunks = splitTextForSpeech(source, 52);
+
+  assert.deepEqual(
+    chunks.map((chunk) => Array.from(chunk.replace(/\s/gu, "")).length),
+    [28, 28],
+  );
+  assert.equal(chunks.join("").replace(/\s/gu, ""), source);
+});
+
+void test("rebalances a short final sentence without losing mixed text", () => {
+  const source = `${"长稿内容DXP480T".repeat(5)}。结束。`;
+  const chunks = splitTextForSpeech(source, 52);
+  const lengths = chunks.map(
+    (chunk) => Array.from(chunk.replace(/\s/gu, "")).length,
+  );
+
+  assert.ok(lengths.every((length) => length <= 52));
+  assert.ok(lengths.every((length) => length >= 20));
+  assert.equal(chunks.join("").replace(/\s/gu, ""), source);
 });
 
 void test("pronunciation replacements are literal and longest-first", () => {

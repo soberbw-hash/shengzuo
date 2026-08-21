@@ -70,7 +70,7 @@ export const VOX_VOICE_MODES = [
   {
     id: "ultimate",
     label: "极致克隆",
-    description: "录音加完整原文，最大程度还原。",
+    description: "30 秒内录音加完整原文。",
   },
   {
     id: "design",
@@ -97,6 +97,9 @@ export const SINGLE_GENERATION_TEXT_LIMITS: Record<ModelId, number> = {
   "fun-cosyvoice3-0.5b": 2_000,
   "indextts2-5": 2_000,
 };
+
+/** 防止损坏的持久化任务制造无限数量的重试种子。 */
+export const MAX_GENERATION_RETRY_EPOCH = 100;
 
 export const countMeaningfulCharacters = (text: string): number =>
   Array.from(text.replace(/\s/gu, "")).length;
@@ -638,6 +641,10 @@ export interface GenerationRequest {
   performanceSegments?: BatchGenerationSegment[];
   voxMode?: VoxVoiceMode;
   voiceDescription?: string;
+  /** 内部任务重试轮次；旧任务未保存时按 0 处理。 */
+  retryEpoch?: number;
+  /** 用户主动重新生成成功结果时创建的新版本标识。 */
+  regenerationId?: string;
 }
 
 export interface BatchGenerationSegment {
@@ -672,6 +679,10 @@ export interface BatchGenerationRequest {
   voxMode?: VoxVoiceMode;
   /** 描述造声使用的声音说明；其他模式不应携带。 */
   voiceDescription?: string;
+  /** 内部任务重试轮次；旧任务未保存时按 0 处理。 */
+  retryEpoch?: number;
+  /** 用户主动重新生成成功结果时创建的新版本标识。 */
+  regenerationId?: string;
 }
 
 export type ImportedDocumentKind = "text" | "word" | "excel";
@@ -1195,6 +1206,27 @@ const isPronunciationRule = (value: unknown): value is PronunciationRule => {
   );
 };
 
+const hasUniqueSegmentIds = (segments: readonly unknown[]): boolean => {
+  const ids = segments.map((segment) =>
+    isRecord(segment) && typeof segment.id === "string" ? segment.id : "",
+  );
+  return ids.every(Boolean) && new Set(ids).size === ids.length;
+};
+
+const hasValidRetryEpoch = (value: Record<string, unknown>): boolean =>
+  value.retryEpoch === undefined ||
+  (typeof value.retryEpoch === "number" &&
+    Number.isInteger(value.retryEpoch) &&
+    value.retryEpoch >= 0 &&
+    value.retryEpoch <= MAX_GENERATION_RETRY_EPOCH);
+
+const hasValidRegenerationId = (value: Record<string, unknown>): boolean =>
+  value.regenerationId === undefined ||
+  (typeof value.regenerationId === "string" &&
+    value.regenerationId.length > 0 &&
+    value.regenerationId.length <= 120 &&
+    /^[a-zA-Z0-9-]+$/u.test(value.regenerationId));
+
 const hasValidGenerationOptions = (value: Record<string, unknown>): boolean =>
   (value.presetId === undefined ||
     (typeof value.presetId === "string" &&
@@ -1207,7 +1239,8 @@ const hasValidGenerationOptions = (value: Record<string, unknown>): boolean =>
     (Array.isArray(value.performanceSegments) &&
       value.performanceSegments.length > 0 &&
       value.performanceSegments.length <= 200 &&
-      value.performanceSegments.every(isBatchGenerationSegment))) &&
+      value.performanceSegments.every(isBatchGenerationSegment) &&
+      hasUniqueSegmentIds(value.performanceSegments))) &&
   (value.voxMode === undefined ||
     (value.modelId === "voxcpm2" &&
       typeof value.voxMode === "string" &&
@@ -1295,6 +1328,8 @@ export const isGenerationRequest = (
     outputFormats.has(value.format as OutputFormat) &&
     (value.preview === undefined || typeof value.preview === "boolean") &&
     (value.projectId === undefined || isProjectId(value.projectId)) &&
+    hasValidRetryEpoch(value) &&
+    hasValidRegenerationId(value) &&
     hasValidGenerationOptions(value)
   );
 };
@@ -1312,6 +1347,7 @@ export const isBatchGenerationRequest = (
     value.segments.length > 0 &&
     value.segments.length <= 200 &&
     value.segments.every(isBatchGenerationSegment) &&
+    hasUniqueSegmentIds(value.segments) &&
     typeof value.language === "string" &&
     languages.has(value.language as Language) &&
     typeof value.emotion === "string" &&
@@ -1336,6 +1372,8 @@ export const isBatchGenerationRequest = (
     (value.sourceText === undefined ||
       (typeof value.sourceText === "string" &&
         value.sourceText.length <= 50_000)) &&
+    hasValidRetryEpoch(value) &&
+    hasValidRegenerationId(value) &&
     hasValidGenerationOptions(value)
   );
 };

@@ -124,21 +124,69 @@ const meaningfulLength = (input: string): number =>
   Array.from(input.replace(/\s/gu, "")).length;
 
 const hardSplitSpeechText = (input: string, limit: number): string[] => {
+  const normalized = input.replace(/\s+/gu, " ").trim();
+  const total = meaningfulLength(normalized);
+  if (!normalized || total <= limit) return normalized ? [normalized] : [];
+
+  // A fixed-width split can turn 56 characters into 52 + 4. Very short
+  // fragments are much less stable in local TTS, so distribute the text as
+  // evenly as possible while keeping every part below the hard limit.
+  const partCount = Math.ceil(total / limit);
+  const baseSize = Math.floor(total / partCount);
+  const largerParts = total % partCount;
+  const targetSizes = Array.from(
+    { length: partCount },
+    (_, index) => baseSize + (index < largerParts ? 1 : 0),
+  );
   const parts: string[] = [];
   let current = "";
   let count = 0;
-  for (const character of input) {
-    const characterCount = /\s/u.test(character) ? 0 : 1;
-    if (current && count + characterCount > limit) {
-      parts.push(current.trim());
+  let targetIndex = 0;
+
+  for (const character of normalized) {
+    current += character;
+    if (!/\s/u.test(character)) count += 1;
+    if (count >= (targetSizes[targetIndex] ?? limit)) {
+      if (current.trim()) parts.push(current.trim());
       current = "";
       count = 0;
+      targetIndex += 1;
     }
-    current += character;
-    count += characterCount;
   }
   if (current.trim()) parts.push(current.trim());
   return parts;
+};
+
+const rebalanceShortSpeechChunks = (
+  chunks: readonly string[],
+  limit: number,
+): string[] => {
+  const result: string[] = [];
+  const minimumStableLength = Math.min(20, Math.floor(limit / 2));
+
+  for (const chunk of chunks) {
+    if (meaningfulLength(chunk) >= minimumStableLength || result.length === 0) {
+      result.push(chunk);
+      continue;
+    }
+
+    const previous = result.pop()!;
+    const combined = `${previous} ${chunk}`.trim();
+    if (meaningfulLength(combined) <= limit) {
+      result.push(combined);
+    } else {
+      result.push(...hardSplitSpeechText(combined, limit));
+    }
+  }
+
+  if (
+    result.length > 1 &&
+    meaningfulLength(result[0] ?? "") < minimumStableLength
+  ) {
+    const combined = `${result[0]} ${result[1]}`.trim();
+    result.splice(0, 2, ...hardSplitSpeechText(combined, limit));
+  }
+  return result;
 };
 
 /**
@@ -190,7 +238,7 @@ export const splitTextForSpeech = (
     }
   }
   if (current) chunks.push(current);
-  return chunks;
+  return rebalanceShortSpeechChunks(chunks, maxMeaningfulCharacters);
 };
 
 const subtitleTiming =
