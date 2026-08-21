@@ -5350,23 +5350,77 @@ select.field-control {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 12px;
 }
 
-.settings-support-card {
+.settings-support-panel {
+  position: relative;
+  display: flex;
   width: 100%;
   flex: 0 0 auto;
-  padding: 8px 14px;
+  min-height: 62px;
+  margin-top: 14px;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  border: 1px solid rgb(214 229 239 / 92%);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 92% 12%, rgb(228 248 240 / 72%), transparent 34%),
+    linear-gradient(112deg, rgb(252 249 251 / 96%), rgb(246 251 255 / 94%));
+  padding: 9px 15px;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 92%),
+    0 10px 26px rgb(68 112 151 / 6%);
 }
 
-.settings-support-card .setting-row {
-  min-height: 48px;
-  padding: 0;
+.settings-support-panel::after {
+  position: absolute;
+  top: -34px;
+  right: 108px;
+  width: 86px;
+  height: 86px;
+  border-radius: 999px;
+  background: rgb(235 229 253 / 30%);
+  content: "";
+  pointer-events: none;
 }
 
-.settings-support-card .setting-row__icon {
-  background: #fff1f4;
+.settings-support-panel__icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(248 219 226 / 72%);
+  border-radius: 13px;
+  background: linear-gradient(145deg, #fff2f5, #fff8f7);
   color: #bd6575;
+  box-shadow: inset 0 1px 0 white;
+}
+
+.settings-support-panel__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.settings-support-panel__copy strong {
+  display: block;
+  color: #344b61;
+  font-size: 13px;
+}
+
+.settings-support-panel__copy p {
+  margin: 2px 0 0;
+  color: #718397;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-support-panel > button {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  color: #8b5d70;
 }
 
 .settings-health-card {
@@ -5755,16 +5809,10 @@ select.field-control {
     padding: 14px;
   }
 
-  .settings-page .settings-support-card {
+  .settings-page .settings-support-panel {
+    min-height: 54px;
+    margin-top: 10px;
     padding: 7px 12px;
-  }
-
-  .settings-secondary-column {
-    gap: 10px;
-  }
-
-  .settings-page .settings-support-card .setting-row {
-    min-height: 44px;
   }
 
   .settings-page .settings-health-banner {

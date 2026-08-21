@@ -570,31 +570,31 @@ export const SettingsPage = () => {
               </SettingRow>
             </div>
           </GlassCard>
-
-          <GlassCard
-            tone="soft"
-            padding="none"
-            className="settings-support-card"
-            data-setting-section="support"
-          >
-            <SettingRow
-              icon={<Heart className="h-4 w-4" />}
-              title="投喂"
-              description="打开微信收款码。"
-            >
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="打开投喂收款码"
-                onClick={() => setShowDonate(true)}
-              >
-                查看
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </SettingRow>
-          </GlassCard>
         </div>
       </div>
+
+      <aside
+        className="settings-support-panel"
+        data-setting-section="support"
+        aria-labelledby="settings-support-title"
+      >
+        <span className="settings-support-panel__icon" aria-hidden="true">
+          <Heart className="h-4 w-4" />
+        </span>
+        <div className="settings-support-panel__copy">
+          <strong id="settings-support-title">支持作者</strong>
+          <p>感谢你对声作后续更新的支持。</p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          aria-label="打开支持作者二维码"
+          onClick={() => setShowDonate(true)}
+        >
+          支持一下
+          <ChevronRight className="h-3.5 w-3.5" />
+        </Button>
+      </aside>
 
       <Modal
         open={showSmartConfig}
@@ -852,14 +852,15 @@ export const SettingsPage = () => {
 
       <Modal
         open={showDonate}
-        title="投喂"
+        title="支持作者"
+        description="感谢你为声作的后续更新添一份动力。"
         onClose={() => setShowDonate(false)}
       >
         <div className="donate-dialog">
           <div className="donate-qr-frame">
             <img src="./donate/wechat-pay.png" alt="微信收款码" />
           </div>
-          <strong>微信扫码</strong>
+          <strong>微信扫码支持</strong>
         </div>
       </Modal>
 

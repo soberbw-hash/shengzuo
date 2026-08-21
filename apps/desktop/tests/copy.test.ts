@@ -75,3 +75,17 @@ void test("public guides use the same workflow names as the application", () => 
     );
   }
 });
+
+void test("portable launcher rejects an incomplete extraction before Windows does", () => {
+  const script = readFileSync(
+    path.join(repositoryRoot, "scripts", "create-share-package.ps1"),
+    "utf8",
+  );
+  assert.equal(script.includes("EXPECTED_ELECTRON_BYTES"), true);
+  assert.equal(script.includes("EXPECTED_ELECTRON_SHA256"), true);
+  assert.equal(script.includes('if not "%%~zF"'), true);
+  assert.equal(script.includes("程序文件没有完整解压"), true);
+  assert.equal(script.includes("等待解压进度完全结束"), true);
+  assert.equal(script.includes("if errorlevel 1 goto launch_failed"), true);
+  assert.equal(script.includes("Windows 未能启动声作"), true);
+});

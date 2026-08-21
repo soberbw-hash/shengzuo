@@ -316,9 +316,9 @@ const standardScenarios = [
     query: "state=ready",
     width: 1280,
     height: 720,
-    clickSettingRow: "投喂",
+    clickText: "支持一下",
     requireVisibleSelector:
-      '[role="dialog"][aria-label="投喂"] .donate-qr-frame img',
+      '[role="dialog"][aria-label="支持作者"] .donate-qr-frame img',
     requireIndependentDonateSection: true,
     requireNoVerticalScroll: true,
   },
@@ -729,15 +729,15 @@ void app
           const maintenance = document.querySelector('[data-setting-section="maintenance"]');
           const supportSections = [...document.querySelectorAll('[data-setting-section="support"]')];
           const support = supportSections[0];
-          const donateRow = [...document.querySelectorAll('.setting-row')].find(
-            (item) => item.querySelector('strong')?.textContent?.trim() === '投喂',
-          );
+          const supportTitle = support?.querySelector('#settings-support-title');
+          const supportButton = support?.querySelector('button');
           if (
             !(page instanceof HTMLElement) ||
             !(grid instanceof HTMLElement) ||
             !(maintenance instanceof HTMLElement) ||
             !(support instanceof HTMLElement) ||
-            !(donateRow instanceof HTMLElement)
+            !(supportTitle instanceof HTMLElement) ||
+            !(supportButton instanceof HTMLButtonElement)
           ) {
             return {
               ready: false,
@@ -746,33 +746,32 @@ void app
             };
           }
           const supportRect = support.getBoundingClientRect();
-          const maintenanceRect = maintenance.getBoundingClientRect();
-          const secondaryColumn = support.closest('.settings-secondary-column');
+          const gridRect = grid.getBoundingClientRect();
           const checks = {
             oneSupportSection: supportSections.length === 1,
-            supportIsOwnCard: support.matches('.glass-card.settings-support-card'),
-            supportIsInSettingsGrid: grid.contains(support),
-            supportAndMaintenanceShareColumn:
-              secondaryColumn instanceof HTMLElement &&
-              maintenance.parentElement === secondaryColumn &&
-              support.parentElement === secondaryColumn,
-            supportFollowsMaintenance:
-              maintenance.compareDocumentPosition(support) &
+            supportIsOwnPanel: support.matches('.settings-support-panel'),
+            supportIsOutsideSettingsGrid: !grid.contains(support),
+            supportFollowsSettingsGrid:
+              grid.compareDocumentPosition(support) &
               Node.DOCUMENT_POSITION_FOLLOWING,
-            cardsHaveVisibleGap: supportRect.top - maintenanceRect.bottom >= 8,
-            donateBelongsToSupport: support.contains(donateRow),
-            donateDoesNotBelongToMaintenance: !maintenance.contains(donateRow),
+            panelHasVisibleGap: supportRect.top - gridRect.bottom >= 8,
+            panelSpansSettingsWidth:
+              Math.abs(supportRect.left - gridRect.left) <= 2 &&
+              Math.abs(supportRect.right - gridRect.right) <= 2,
+            supportTitleIsClear: supportTitle.textContent?.trim() === '支持作者',
+            supportActionIsClear: supportButton.textContent?.includes('支持一下'),
+            supportDoesNotBelongToMaintenance: !maintenance.contains(support),
           };
           return {
             ready: Object.values(checks).every(Boolean),
             checks,
             supportCount: supportSections.length,
-            verticalGap: Math.round(supportRect.top - maintenanceRect.bottom),
+            verticalGap: Math.round(supportRect.top - gridRect.bottom),
           };
         })()`);
         if (!donateSection.ready) {
           throw new Error(
-            `${scenario.name} did not keep donate in its own settings section: ${JSON.stringify(donateSection)}`,
+            `${scenario.name} did not keep author support below the settings grid: ${JSON.stringify(donateSection)}`,
           );
         }
       }

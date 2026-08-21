@@ -1589,16 +1589,16 @@ void app
       const maintenance = document.querySelector('[data-setting-section="maintenance"]');
       const supportSections = [...document.querySelectorAll('[data-setting-section="support"]')];
       const support = supportSections[0];
-      const donateRow = [...document.querySelectorAll('.setting-row')].find(
-        (item) => item.querySelector('strong')?.textContent?.trim() === '投喂',
-      );
+      const supportTitle = support?.querySelector('#settings-support-title');
+      const supportButton = support?.querySelector('button');
       const main = document.querySelector('main.main-scroll');
       if (
         !(page instanceof HTMLElement) ||
         !(grid instanceof HTMLElement) ||
         !(maintenance instanceof HTMLElement) ||
         !(support instanceof HTMLElement) ||
-        !(donateRow instanceof HTMLElement) ||
+        !(supportTitle instanceof HTMLElement) ||
+        !(supportButton instanceof HTMLButtonElement) ||
         !(main instanceof HTMLElement)
       ) {
         return {
@@ -1608,23 +1608,23 @@ void app
         };
       }
       const supportRect = support.getBoundingClientRect();
+      const gridRect = grid.getBoundingClientRect();
       const maintenanceRect = maintenance.getBoundingClientRect();
       const mainRect = main.getBoundingClientRect();
-      const secondaryColumn = support.closest('.settings-secondary-column');
       const checks = {
         oneSupportSection: supportSections.length === 1,
-        supportIsOwnCard: support.matches('.glass-card.settings-support-card'),
-        supportIsInSettingsGrid: grid.contains(support),
-        supportAndMaintenanceShareColumn:
-          secondaryColumn instanceof HTMLElement &&
-          maintenance.parentElement === secondaryColumn &&
-          support.parentElement === secondaryColumn,
-        supportFollowsMaintenance:
-          maintenance.compareDocumentPosition(support) &
+        supportIsOwnPanel: support.matches('.settings-support-panel'),
+        supportIsOutsideSettingsGrid: !grid.contains(support),
+        supportFollowsSettingsGrid:
+          grid.compareDocumentPosition(support) &
           Node.DOCUMENT_POSITION_FOLLOWING,
-        cardsHaveVisibleGap: supportRect.top - maintenanceRect.bottom >= 8,
-        donateBelongsToSupport: support.contains(donateRow),
-        donateDoesNotBelongToMaintenance: !maintenance.contains(donateRow),
+        panelHasVisibleGap: supportRect.top - gridRect.bottom >= 8,
+        panelSpansSettingsWidth:
+          Math.abs(supportRect.left - gridRect.left) <= 2 &&
+          Math.abs(supportRect.right - gridRect.right) <= 2,
+        supportTitleIsClear: supportTitle.textContent?.trim() === '支持作者',
+        supportActionIsClear: supportButton.textContent?.includes('支持一下'),
+        supportDoesNotBelongToMaintenance: !maintenance.contains(support),
         donateSectionIsVisible:
           supportRect.top >= mainRect.top - 2 &&
           supportRect.bottom <= mainRect.bottom + 2 &&
@@ -1654,7 +1654,7 @@ void app
     })()`);
     if (!donateSectionLayout.ready) {
       throw new Error(
-        `投喂应是设置中的独立分区：${JSON.stringify(donateSectionLayout)}`,
+        `支持作者应是设置主体下方的独立分区：${JSON.stringify(donateSectionLayout)}`,
       );
     }
     const settingsCompactLayout = await inspectPageVerticalLayout(window);
@@ -1665,32 +1665,29 @@ void app
     }
     const donateSettingsOpened = await window.webContents
       .executeJavaScript(`(() => {
-      const row = [...document.querySelectorAll('.setting-row')].find(
-        (item) => item.querySelector('strong')?.textContent?.trim() === '投喂',
-      );
-      const button = row?.querySelector('button');
+      const button = document.querySelector('[data-setting-section="support"] button');
       if (!(button instanceof HTMLButtonElement)) return false;
       button.click();
       return true;
     })()`);
-    if (!donateSettingsOpened) throw new Error("设置中没有找到投喂入口");
+    if (!donateSettingsOpened) throw new Error("设置中没有找到支持作者入口");
     await waitFor(
       window,
-      'document.querySelector(\'[role="dialog"][aria-label="投喂"] .donate-qr-frame img\')?.complete && document.querySelector(\'[role="dialog"][aria-label="投喂"] .donate-qr-frame img\')?.naturalWidth > 0 && document.body.innerText.includes(\'微信扫码\')',
-      "设置中的投喂收款码",
+      'document.querySelector(\'[role="dialog"][aria-label="支持作者"] .donate-qr-frame img\')?.complete && document.querySelector(\'[role="dialog"][aria-label="支持作者"] .donate-qr-frame img\')?.naturalWidth > 0 && document.body.innerText.includes(\'微信扫码支持\')',
+      "设置中的支持作者收款码",
     );
     const donateSettingsClosed = await window.webContents
       .executeJavaScript(`(() => {
-      const close = document.querySelector('[role="dialog"][aria-label="投喂"] [aria-label="关闭弹窗"]');
+      const close = document.querySelector('[role="dialog"][aria-label="支持作者"] [aria-label="关闭弹窗"]');
       if (!(close instanceof HTMLButtonElement)) return false;
       close.click();
       return true;
     })()`);
-    if (!donateSettingsClosed) throw new Error("设置中的投喂弹窗无法关闭");
+    if (!donateSettingsClosed) throw new Error("设置中的支持作者弹窗无法关闭");
     await waitFor(
       window,
-      '!document.querySelector(\'[role="dialog"][aria-label="投喂"]\')',
-      "关闭设置中的投喂弹窗",
+      '!document.querySelector(\'[role="dialog"][aria-label="支持作者"]\')',
+      "关闭设置中的支持作者弹窗",
     );
     window.setContentSize(1280, 800, false);
     await delay(120);

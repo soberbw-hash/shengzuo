@@ -246,35 +246,104 @@ foreach ($privateContentPattern in $privateContentPatterns) {
   }
 }
 
+$portableElectron = Join-Path $portableDesktopRoot 'node_modules\electron\dist\electron.exe'
+$portableFont = Join-Path $portableDesktopRoot 'dist\fonts\HarmonyOS_Sans_SC.ttf'
+$portableChromiumLicense = Join-Path $portableDesktopRoot 'node_modules\electron\dist\LICENSES.chromium.html'
+$portableMain = Join-Path $portableDesktopRoot 'dist-electron\main\index.cjs'
+$portableRenderer = Join-Path $portableDesktopRoot 'dist\index.html'
+foreach ($criticalFile in @($portableElectron, $portableFont, $portableChromiumLicense, $portableMain, $portableRenderer)) {
+  if (-not (Test-Path -LiteralPath $criticalFile -PathType Leaf)) {
+    throw "便携包缺少启动所需文件：$criticalFile"
+  }
+}
+$electronBytes = (Get-Item -LiteralPath $portableElectron).Length
+$fontBytes = (Get-Item -LiteralPath $portableFont).Length
+$chromiumLicenseBytes = (Get-Item -LiteralPath $portableChromiumLicense).Length
+$mainBytes = (Get-Item -LiteralPath $portableMain).Length
+$rendererBytes = (Get-Item -LiteralPath $portableRenderer).Length
+$electronHash = Get-Sha256Hash -Path $portableElectron
+
 $normalLauncher = @'
 @echo off
+chcp 65001 >nul
 setlocal
 set "APPROOT=%~dp0app\source\apps\desktop"
 set "ELECTRON=%APPROOT%\node_modules\electron\dist\electron.exe"
+set "FONT=%APPROOT%\dist\fonts\HarmonyOS_Sans_SC.ttf"
+set "CHROMIUM_LICENSE=%APPROOT%\node_modules\electron\dist\LICENSES.chromium.html"
 set "MAIN=%APPROOT%\dist-electron\main\index.cjs"
 set "RENDERER=%APPROOT%\dist\index.html"
+set "EXPECTED_ELECTRON_BYTES=__ELECTRON_BYTES__"
+set "EXPECTED_FONT_BYTES=__FONT_BYTES__"
+set "EXPECTED_CHROMIUM_LICENSE_BYTES=__CHROMIUM_LICENSE_BYTES__"
+set "EXPECTED_MAIN_BYTES=__MAIN_BYTES__"
+set "EXPECTED_RENDERER_BYTES=__RENDERER_BYTES__"
+set "EXPECTED_ELECTRON_SHA256=__ELECTRON_SHA256__"
 set "MODELLIB="
 set "PRESETVOICES="
 for /d %%D in ("%~dp0*") do if exist "%%~fD\model-library.json" set "MODELLIB=%%~fD"
 for /d %%D in ("%~dp0*") do if exist "%%~fD\.shengzuo-preset-voices" set "PRESETVOICES=%%~fD"
 
 if not exist "%ELECTRON%" goto missing
+if not exist "%FONT%" goto missing
+if not exist "%CHROMIUM_LICENSE%" goto missing
 if not exist "%MAIN%" goto missing
 if not exist "%RENDERER%" goto missing
+for %%F in ("%ELECTRON%") do if not "%%~zF"=="%EXPECTED_ELECTRON_BYTES%" goto damaged
+for %%F in ("%FONT%") do if not "%%~zF"=="%EXPECTED_FONT_BYTES%" goto damaged
+for %%F in ("%CHROMIUM_LICENSE%") do if not "%%~zF"=="%EXPECTED_CHROMIUM_LICENSE_BYTES%" goto damaged
+for %%F in ("%MAIN%") do if not "%%~zF"=="%EXPECTED_MAIN_BYTES%" goto damaged
+for %%F in ("%RENDERER%") do if not "%%~zF"=="%EXPECTED_RENDERER_BYTES%" goto damaged
 
+set "ACTUAL_ELECTRON_SHA256="
+where powershell.exe >nul 2>&1
+if errorlevel 1 goto launch
+for /f "usebackq delims=" %%H in (`powershell.exe -NoLogo -NoProfile -NonInteractive -Command "$s=[IO.File]::OpenRead($env:ELECTRON); try { $h=[Security.Cryptography.SHA256]::Create(); try { [BitConverter]::ToString($h.ComputeHash($s)).Replace('-','') } finally { $h.Dispose() } } finally { $s.Dispose() }" 2^>nul`) do set "ACTUAL_ELECTRON_SHA256=%%H"
+if not defined ACTUAL_ELECTRON_SHA256 goto launch
+if /i not "%ACTUAL_ELECTRON_SHA256%"=="%EXPECTED_ELECTRON_SHA256%" goto damaged
+
+:launch
 set "AVS_USE_DIST=1"
 if defined MODELLIB set "SHENGZUO_MODEL_LIBRARY=%MODELLIB%"
 if defined PRESETVOICES set "SHENGZUO_PRESET_VOICES=%PRESETVOICES%"
 start "" /d "%APPROOT%" "%ELECTRON%" "%APPROOT%"
+if errorlevel 1 goto launch_failed
 exit /b 0
 
+:launch_failed
+echo.
+echo [启动失败] Windows 未能启动声作。
+echo 请先重新“全部解压”后再试；如果文件检查通过但仍无法启动，可能需要由设备管理员允许此程序运行。
+echo.
+pause
+exit /b 4
+
 :missing
-echo ShengZuo files are incomplete. Please extract the whole ZIP first.
+echo.
+echo [启动失败] 程序文件不完整。
+echo 请删除当前文件夹，从原始 ZIP 右键选择“全部解压”，等待解压完成后再打开“启动.cmd”。
+echo.
 pause
 exit /b 2
-'@
 
-[IO.File]::WriteAllText((Join-Path $stagingRoot '启动.cmd'), $normalLauncher, [Text.Encoding]::ASCII)
+:damaged
+echo.
+echo [启动失败] 程序文件没有完整解压。
+echo 请删除当前文件夹，不要继续复制这份损坏的文件。
+echo 回到原始 ZIP，右键选择“全部解压”，等待解压进度完全结束后再启动。
+echo.
+pause
+exit /b 3
+'@
+$normalLauncher = $normalLauncher.Replace('__ELECTRON_BYTES__', [string]$electronBytes)
+$normalLauncher = $normalLauncher.Replace('__FONT_BYTES__', [string]$fontBytes)
+$normalLauncher = $normalLauncher.Replace('__CHROMIUM_LICENSE_BYTES__', [string]$chromiumLicenseBytes)
+$normalLauncher = $normalLauncher.Replace('__MAIN_BYTES__', [string]$mainBytes)
+$normalLauncher = $normalLauncher.Replace('__RENDERER_BYTES__', [string]$rendererBytes)
+$normalLauncher = $normalLauncher.Replace('__ELECTRON_SHA256__', $electronHash)
+$normalLauncher = $normalLauncher -replace "`r?`n", "`r`n"
+
+[IO.File]::WriteAllText((Join-Path $stagingRoot '启动.cmd'), $normalLauncher, [Text.UTF8Encoding]::new($false))
 
 $usageGuide = @"
 声作 $version · 完整便携版
@@ -286,7 +355,7 @@ $usageGuide = @"
 打开方法
 --------
 
-1. 右键 ZIP，选择“全部解压”。不要在压缩包预览里直接运行。
+1. 右键 ZIP，选择“全部解压”，等待解压进度窗口完全结束。不要在压缩包预览里直接运行，也不要复制尚未解压完整的文件夹。
 2. 双击“【启动.cmd】”，软件打开后命令窗口会自动退出。
 3. app 文件夹是程序文件，不要单独移动、改名或删除。
 
@@ -332,7 +401,7 @@ IndexTTS-2.5 当前组合包含仅限非商业使用的辅助权重，下载前�
 打不开时
 --------
 
-1. 确认已经完整解压，且“启动.cmd”和 app 文件夹在同一个总文件夹中。
+1. 确认已经完整解压，且“启动.cmd”和 app 文件夹在同一个总文件夹中；如果提示文件不完整，请删除当前文件夹后从原始 ZIP 重新“全部解压”。
 2. 把整个文件夹复制到本机可写的短路径，例如 D:\ShengZuo，再试一次。
 3. 不要放在网盘预览、邮件附件预览、只读目录或超长路径中运行。
 4. 模型下载失败时，检查网络和剩余空间，然后在模型页点击重试。
@@ -401,9 +470,8 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
   $true
 )
 
-# Compress-Archive silently skips hidden files on Windows. The preset-voice
-# marker is deliberately hidden, so fail the package if the ZIP is not an exact
-# file-for-file copy of the folder that was just audited.
+# Fail the package if the ZIP is not an exact file-for-file copy of the folder
+# that was just audited.
 $zipRootPrefix = "$([IO.Path]::GetFileName($targetRoot))/"
 $expectedZipFiles = @(
   Get-ChildItem -LiteralPath $targetRoot -File -Recurse -Force |
