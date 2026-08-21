@@ -20,6 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: python -m pip install "numpy==2.2.6" "soundfile==0.13.1"
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm lint
