@@ -26,6 +26,9 @@ if (!existsSync(server)) throw new Error(`Missing prerequisite: ${server}`);
 
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
+const startupTimeoutMilliseconds = 20_000;
+const probeTimeoutMilliseconds = 1_500;
+const probeIntervalMilliseconds = 150;
 
 const acquireLoopbackPort = () =>
   new Promise((resolve, reject) => {
@@ -75,13 +78,18 @@ const child = spawn(
     "--output-root",
     outputRoot,
   ],
-  { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] },
+  { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
 );
 
 let spawnError;
+let stdout = "";
 let stderr = "";
 child.once("error", (error) => {
   spawnError = error;
+});
+child.stdout.setEncoding("utf8");
+child.stdout.on("data", (chunk) => {
+  stdout = `${stdout}${chunk}`.slice(-32_000);
 });
 child.stderr.setEncoding("utf8");
 child.stderr.on("data", (chunk) => {
@@ -89,13 +97,36 @@ child.stderr.on("data", (chunk) => {
 });
 
 const workerFailure = (message) => {
-  const detail = stderr.trim();
-  return new Error(detail ? `${message}\nWorker stderr:\n${detail}` : message);
+  const processStatus = [
+    `executable=${path.basename(python)}`,
+    `pid=${child.pid ?? "unavailable"}`,
+    `exit=${child.exitCode ?? "running"}`,
+    `signal=${child.signalCode ?? "none"}`,
+    `killed=${child.killed ? "yes" : "no"}`,
+  ].join(", ");
+  return new Error(
+    [
+      message,
+      `Worker process: ${processStatus}`,
+      `Worker stdout:\n${stdout.trim() || "(empty)"}`,
+      `Worker stderr:\n${stderr.trim() || "(empty)"}`,
+    ].join("\n"),
+  );
 };
 
-const post = (route, token, extraHeaders = {}) =>
+const describeError = (error) => {
+  if (!(error instanceof Error)) return String(error);
+  const cause =
+    error.cause instanceof Error
+      ? `; cause=${error.cause.name}: ${error.cause.message}`
+      : "";
+  return `${error.name}: ${error.message}${cause}`;
+};
+
+const post = (route, token, extraHeaders = {}, signal = undefined) =>
   fetch(`${baseUrl}${route}`, {
     method: "POST",
+    signal,
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -105,7 +136,10 @@ const post = (route, token, extraHeaders = {}) =>
   });
 
 const waitUntilReady = async () => {
-  for (let attempt = 0; attempt < 60; attempt += 1) {
+  const deadline = Date.now() + startupTimeoutMilliseconds;
+  let attempts = 0;
+  let lastProbeError = "none";
+  while (Date.now() < deadline) {
     if (spawnError) {
       throw workerFailure(
         `Could not start Python worker: ${spawnError.message}`,
@@ -116,13 +150,26 @@ const waitUntilReady = async () => {
         `Worker exited before accepting connections (code ${child.exitCode}).`,
       );
     }
+    attempts += 1;
     try {
-      return await post("/shutdown", "not-authorized");
-    } catch {
-      await delay(100);
+      const remaining = Math.max(1, deadline - Date.now());
+      return await post(
+        "/shutdown",
+        "not-authorized",
+        {},
+        AbortSignal.timeout(Math.min(probeTimeoutMilliseconds, remaining)),
+      );
+    } catch (error) {
+      lastProbeError = describeError(error);
+      const remaining = deadline - Date.now();
+      if (remaining > 0) {
+        await delay(Math.min(probeIntervalMilliseconds, remaining));
+      }
     }
   }
-  throw workerFailure("Worker did not accept loopback connections.");
+  throw workerFailure(
+    `Worker did not accept loopback connections within ${startupTimeoutMilliseconds / 1_000} seconds after ${attempts} probes. Last probe: ${lastProbeError}`,
+  );
 };
 
 const waitForExit = (requireSuccess = true) =>
