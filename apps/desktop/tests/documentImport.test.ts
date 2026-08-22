@@ -66,6 +66,28 @@ void test("imports rows and shared strings from Excel XLSX documents", async () 
   }
 });
 
+void test("keeps dialogue cells after self-closing empty Excel cells", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-xlsx-empty-"));
+  try {
+    const filePath = await createOfficeArchive(root, "xlsx", [
+      {
+        name: "xl/sharedStrings.xml",
+        content:
+          '<sst xmlns="sheet"><si><t>壹</t></si><si><t>第一句台词</t></si></sst>',
+      },
+      {
+        name: "xl/worksheets/sheet1.xml",
+        content:
+          '<worksheet xmlns="sheet"><sheetData><row r="4"><c r="A4" t="s"><v>0</v></c><c r="B4"><v>1</v></c><c r="C4"/><c r="D4"/><c r="E4"/><c r="F4" t="s"><v>1</v></c></row></sheetData></worksheet>',
+      },
+    ]);
+    const result = await readImportedDocument(filePath);
+    assert.equal(result.text, "壹\t1\t\t\t\t第一句台词");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 void test("rejects unsafe paths inside Office documents", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "shengzuo-unsafe-docx-"));
   try {

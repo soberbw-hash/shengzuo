@@ -58,12 +58,14 @@ import {
   estimateVisibleCharacters,
   FrozenQualityBaselineTracker,
   generationQualityModeFor,
+  generationQualityRetryCount,
   isAssessmentBetter,
   shouldUseVoxLongForm,
   type FrozenQualityBaseline,
   type GeneratedAudioAssessment,
   type GeneratedAudioMetrics,
 } from "./generatedAudioQuality";
+import { retryAudioInspection } from "./audioInspection";
 import {
   createBatchGenerationSeed,
   createSegmentFingerprint,
@@ -2005,7 +2007,10 @@ class ModelEngine {
       request.longForm ? baseline?.previousPitchHz : undefined,
     );
     let retried = false;
-    const retryCount = request.preview ? 1 : mode === "careful" ? 2 : 1;
+    const retryCount = generationQualityRetryCount(
+      mode,
+      Boolean(request.preview),
+    );
 
     for (
       let attempt = 1;
@@ -2079,6 +2084,12 @@ class ModelEngine {
   }
 
   private async inspectGeneratedAudio(
+    jobId: string,
+  ): Promise<GeneratedAudioMetrics> {
+    return retryAudioInspection(() => this.inspectGeneratedAudioOnce(jobId));
+  }
+
+  private async inspectGeneratedAudioOnce(
     jobId: string,
   ): Promise<GeneratedAudioMetrics> {
     const audioPath = path.join(this.outputRoot, `${jobId}.mp3`);

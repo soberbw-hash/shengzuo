@@ -178,6 +178,7 @@ const AppBootstrap = () => {
             tone: "success",
             durationMs: 15_000,
             dedupeKey: `task-completed:${task.id}:${task.updatedAt}`,
+            replaceKey: `task-result:${task.id}`,
             action: {
               label: "查看并试听",
               to: `/projects${query ? `?${query}` : ""}`,
@@ -195,6 +196,7 @@ const AppBootstrap = () => {
           tone: "danger",
           durationMs: null,
           dedupeKey: `task-failed:${task.id}:${task.updatedAt}`,
+          replaceKey: `task-result:${task.id}`,
           action: {
             label: "查看任务",
             to: `/projects?${params.toString()}`,

@@ -7,6 +7,7 @@ import {
   estimateVisibleCharacters,
   FrozenQualityBaselineTracker,
   generationQualityModeFor,
+  generationQualityRetryCount,
   isAssessmentBetter,
   shouldUseVoxLongForm,
   type GeneratedAudioAssessment,
@@ -21,6 +22,12 @@ const healthy = {
   leadingSilenceSeconds: 0.05,
   trailingSilenceSeconds: 0.08,
 };
+
+void test("gives full careful generations more recovery attempts", () => {
+  assert.equal(generationQualityRetryCount("careful", false), 4);
+  assert.equal(generationQualityRetryCount("careful", true), 1);
+  assert.equal(generationQualityRetryCount("standard", false), 1);
+});
 
 void test("accepts a healthy spoken segment", () => {
   const result = assessGeneratedAudio(
@@ -179,6 +186,63 @@ void test("does not merge a careful long-form segment with moderate pace drift",
   assert.equal(slower.critical, true);
 });
 
+void test("accepts a short structural heading's natural delivery shift", () => {
+  const text = "四、相册：宝宝农历生日 + 大事记";
+  const result = assessGeneratedAudio(
+    {
+      ...healthy,
+      durationSeconds: estimateSpokenUnits(text) * 0.32,
+      medianPitchHz: 360,
+    },
+    text,
+    "careful",
+    0.22,
+    240,
+    1,
+    "voxcpm2",
+  );
+  assert.equal(result.issues.length, 0);
+  assert.equal(result.critical, false);
+});
+
+void test("still rejects an extreme structural heading shift", () => {
+  const text = "四、相册：宝宝农历生日 + 大事记";
+  const result = assessGeneratedAudio(
+    {
+      ...healthy,
+      durationSeconds: estimateSpokenUnits(text) * 0.46,
+      medianPitchHz: 480,
+    },
+    text,
+    "careful",
+    0.22,
+    240,
+    1,
+    "voxcpm2",
+  );
+  assert.ok(result.issues.includes("语速明显变慢"));
+  assert.ok(result.issues.includes("音高明显变化"));
+  assert.equal(result.critical, true);
+});
+
+void test("still rejects the same pace and pitch drift in ordinary narration", () => {
+  const text = "宝宝相册现在支持设置农历生日，时间轴也会自动对齐。";
+  const result = assessGeneratedAudio(
+    {
+      ...healthy,
+      durationSeconds: estimateSpokenUnits(text) * 0.32,
+      medianPitchHz: 360,
+    },
+    text,
+    "careful",
+    0.22,
+    240,
+    1,
+    "voxcpm2",
+  );
+  assert.equal(result.critical, true);
+});
+
 void test("keeps unvalidated moderate pace drift as a warning on other models", () => {
   const text = "这段文字用于确认其他模型不会套用 Vox 的严格失败门槛。";
   const result = assessGeneratedAudio(
@@ -335,6 +399,22 @@ void test("flags a sudden adjacent pitch jump even when both segments are near t
   );
   assert.ok(result.issues.includes("音高明显变化"));
   assert.ok(Math.abs(result.pitchSemitoneDelta ?? 0) > 4.8);
+});
+
+void test("waits for a frozen baseline before enforcing moderate adjacent pitch drift", () => {
+  const result = assessGeneratedAudio(
+    { ...healthy, medianPitchHz: 220 },
+    "第二段正文会从开场的高昂语气自然回落到正常口播。",
+    "careful",
+    undefined,
+    undefined,
+    1,
+    "voxcpm2",
+    false,
+    330,
+  );
+  assert.equal(result.issues.includes("音高明显变化"), false);
+  assert.equal(result.critical, false);
 });
 
 void test("does not enforce the unvalidated pitch gate on other models", () => {

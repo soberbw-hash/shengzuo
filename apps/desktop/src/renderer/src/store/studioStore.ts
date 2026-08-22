@@ -23,6 +23,7 @@ export interface ToastMessage {
   tone: BadgeTone;
   durationMs?: number | null;
   dedupeKey?: string;
+  replaceKey?: string;
   action?: {
     label: string;
     to: string;
@@ -220,8 +221,14 @@ export const useStudioStore = create<StudioState>((set) => ({
             item.description === toast.description),
       );
       if (duplicate) return state;
+      const remainingToasts = toast.replaceKey
+        ? state.toasts.filter((item) => item.replaceKey !== toast.replaceKey)
+        : state.toasts;
       return {
-        toasts: [...state.toasts.slice(-2), { ...toast, id: createToastId() }],
+        toasts: [
+          ...remainingToasts.slice(-2),
+          { ...toast, id: createToastId() },
+        ],
       };
     }),
   dismissToast: (id) =>

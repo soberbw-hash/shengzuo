@@ -175,7 +175,7 @@ const readXlsx = async (filePath: string): Promise<string> => {
     for (const rowMatch of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/giu)) {
       const cells: string[] = [];
       for (const cellMatch of (rowMatch[1] ?? "").matchAll(
-        /<c\b([^>]*)>([\s\S]*?)<\/c>/giu,
+        /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/giu,
       )) {
         const attributes = cellMatch[1] ?? "";
         const body = cellMatch[2] ?? "";

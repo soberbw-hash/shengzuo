@@ -11,6 +11,8 @@ const smokeText =
   process.env.SHENGZUO_SMOKE_TEXT ??
   "这是声作的真实模型配音测试。声音清楚、自然，并且只在本机生成。";
 const smokeExpression = process.env.SHENGZUO_SMOKE_EXPRESSION ?? "自然、清晰";
+const smokeLongForm = process.env.SHENGZUO_SMOKE_LONG_FORM === "1";
+const smokeGenerationSeed = process.env.SHENGZUO_SMOKE_GENERATION_SEED?.trim();
 const requestedVoiceName = process.env.SHENGZUO_SMOKE_VOICE_NAME?.trim();
 const voxMode = process.env.SHENGZUO_SMOKE_VOX_MODE?.trim() ?? "controlled";
 const voiceDescription =
@@ -179,6 +181,11 @@ try {
       referenceText: profile?.referenceText ?? "",
       voxMode: modelId === "voxcpm2" ? voxMode : undefined,
       voiceDescription: isVoxVoiceDesign ? voiceDescription : undefined,
+      longForm: modelId === "voxcpm2" ? smokeLongForm : undefined,
+      generationSeed:
+        modelId === "voxcpm2" && smokeGenerationSeed
+          ? Number.parseInt(smokeGenerationSeed, 10)
+          : undefined,
     },
     2 * 60 * 60 * 1_000,
   );

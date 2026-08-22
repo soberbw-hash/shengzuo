@@ -105,6 +105,17 @@ export const estimateSpokenUnits = (text: string): number => {
 export const estimateVisibleCharacters = (text: string): number =>
   Array.from(text).filter((character) => !/\s/u.test(character)).length;
 
+const isShortStructuralHeading = (text: string): boolean => {
+  const trimmed = text.trim();
+  const units = estimateSpokenUnits(trimmed);
+  if (units < 2 || units > 28) return false;
+  return (
+    /^(?:[一二三四五六七八九十百]+、|第[一二三四五六七八九十百0-9]+[章节部分]|[0-9]+[、.．])/u.test(
+      trimmed,
+    ) || /[:：]$/u.test(trimmed)
+  );
+};
+
 export const generationQualityModeFor = (request: {
   modelId: ModelId;
   presetId?: GenerationPresetId;
@@ -124,6 +135,11 @@ export const generationQualityModeFor = (request: {
   }
   return "standard";
 };
+
+export const generationQualityRetryCount = (
+  mode: GenerationQualityMode,
+  preview: boolean,
+): number => (preview ? 1 : mode === "careful" ? 4 : 1);
 
 export const shouldUseVoxLongForm = (request: {
   modelId: ModelId;
@@ -252,6 +268,7 @@ export const assessGeneratedAudio = (
     metrics.medianPitchHz > 0
       ? metrics.medianPitchHz
       : undefined;
+  const shortStructuralHeading = isShortStructuralHeading(text);
   let stabilityDeviation = 0;
 
   const add = (code: string, weight: number, isCritical = false) => {
@@ -298,19 +315,31 @@ export const assessGeneratedAudio = (
     ) {
       const ratio = secondsPerUnit / baselineSecondsPerUnit;
       stabilityDeviation += Math.abs(Math.log(ratio));
-      const fastRatio = calibration ? 0.86 : 0.78;
-      const slowRatio = calibration ? 1.18 : 1.4;
+      const fastRatio = shortStructuralHeading
+        ? 0.65
+        : calibration
+          ? 0.86
+          : 0.78;
+      const slowRatio = shortStructuralHeading
+        ? 1.65
+        : calibration
+          ? 1.18
+          : 1.4;
       if (ratio < fastRatio) {
         add(
           "语速明显变快",
           75,
-          mode === "careful" && (modelId === "voxcpm2" || ratio < 0.65),
+          mode === "careful" &&
+            (ratio < 0.65 ||
+              (!shortStructuralHeading && modelId === "voxcpm2")),
         );
       } else if (ratio > slowRatio) {
         add(
           "语速明显变慢",
           70,
-          mode === "careful" && (modelId === "voxcpm2" || ratio > 1.65),
+          mode === "careful" &&
+            (ratio > 1.65 ||
+              (!shortStructuralHeading && modelId === "voxcpm2")),
         );
       }
     }
@@ -332,7 +361,11 @@ export const assessGeneratedAudio = (
       .map((reference) => 12 * Math.log2(medianPitchHz / reference))
       .sort((left, right) => Math.abs(right) - Math.abs(left))[0]!;
     stabilityDeviation += Math.abs(pitchSemitoneDelta) / 12;
-    if (Math.abs(pitchSemitoneDelta) > 4.8) {
+    const collectingInitialBaseline =
+      baselinePitchHz === undefined && previousPitchHz !== undefined;
+    const pitchLimit =
+      shortStructuralHeading || collectingInitialBaseline ? 9.6 : 4.8;
+    if (Math.abs(pitchSemitoneDelta) > pitchLimit) {
       add("音高明显变化", 80, mode === "careful");
     }
   }
