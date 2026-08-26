@@ -195,6 +195,33 @@ void test("changes a segment fingerprint when the active reference sample change
   assert.notEqual(second, first);
 });
 
+void test("invalidates a continuation segment when its previous take changes", () => {
+  const generationSeed = seedFor();
+  const base = {
+    modelId: "voxcpm2",
+    voiceId: "voice-a",
+    text: "后续长稿片段",
+    expression: "自然、清晰",
+    voxMode: "controlled",
+    language: "auto",
+    emotion: "自然",
+    speed: 1,
+    volume: 1,
+    presetId: "natural",
+    generationSeed,
+    longForm: true,
+  } as const;
+  const first = createSegmentFingerprint({
+    ...base,
+    continuationFingerprint: "previous-take-a",
+  });
+  const second = createSegmentFingerprint({
+    ...base,
+    continuationFingerprint: "previous-take-b",
+  });
+  assert.notEqual(second, first);
+});
+
 void test("rejects v1 or quality-less cache entries", () => {
   const projectId = "project-stable-id";
   assert.equal(

@@ -23,6 +23,11 @@ export interface SegmentFingerprintInput {
   referenceSampleSha256?: string;
   generationSeed: number;
   longForm: boolean;
+  /**
+   * The previous segment's fingerprint participates in long-form cache keys.
+   * A segment generated with a different continuation must never be reused.
+   */
+  continuationFingerprint?: string;
   regenerationId?: string;
 }
 
@@ -146,6 +151,9 @@ export const createSegmentFingerprint = (
     referenceSampleSha256: input.referenceSampleSha256,
     generationSeed: input.generationSeed,
     longForm: input.longForm,
+    ...(input.continuationFingerprint
+      ? { continuationFingerprint: input.continuationFingerprint }
+      : {}),
     ...(input.regenerationId ? { regenerationId: input.regenerationId } : {}),
   });
 

@@ -395,6 +395,10 @@ type SegmentedGenerationRequest = Omit<BatchGenerationRequest, "kind"> & {
 type StableGenerationRequest = GenerationRequest & {
   longForm?: boolean;
   generationSeed?: number;
+  /** Previous same-speaker audio used to keep a long-form take continuous. */
+  continuationAudioPath?: string;
+  continuationText?: string;
+  continuationFingerprint?: string;
 };
 
 interface GenerationVoiceSource {
@@ -1567,6 +1571,28 @@ class ModelEngine {
         const preparedText = segment.text;
         const voice = voiceSources.get(segment.voiceId);
         if (!voice) throw new Error("VOICE_SAMPLE_NOT_FOUND");
+        const previousState = completedStates.at(-1);
+        const previousAudioPath = previousState
+          ? path.join(this.outputRoot, `${previousState.segmentId}.mp3`)
+          : undefined;
+        const canContinuePreviousTake =
+          request.modelId === "voxcpm2" &&
+          longForm &&
+          previousState !== undefined &&
+          previousState.request.modelId === request.modelId &&
+          previousState.request.voiceId === segment.voiceId &&
+          previousState.request.voxMode === request.voxMode &&
+          previousAudioPath !== undefined &&
+          existsSync(previousAudioPath);
+        const continuationFingerprint = canContinuePreviousTake
+          ? previousState?.fingerprint
+          : undefined;
+        const continuationText = canContinuePreviousTake
+          ? previousState?.request.text
+          : undefined;
+        const continuationAudioPath = canContinuePreviousTake
+          ? previousAudioPath
+          : undefined;
         const nextGenerationSeed = createBatchGenerationSeed({
           cacheKey,
           modelId: request.modelId,
@@ -1596,6 +1622,7 @@ class ModelEngine {
           referenceSampleId: voice.sampleId,
           referenceSampleSha256: voice.sampleSha256,
           longForm,
+          ...(continuationFingerprint ? { continuationFingerprint } : {}),
           regenerationId: request.regenerationId,
         };
         const cached = cache.segments[cacheId];
@@ -1636,6 +1663,9 @@ class ModelEngine {
           regenerationId: request.regenerationId,
           longForm,
           generationSeed,
+          ...(continuationAudioPath ? { continuationAudioPath } : {}),
+          ...(continuationText ? { continuationText } : {}),
+          ...(continuationFingerprint ? { continuationFingerprint } : {}),
         };
         if (reusableCached) {
           durationSeconds += reusableCached.durationSeconds;
@@ -1910,6 +1940,12 @@ class ModelEngine {
           ? {
               longForm: Boolean(request.longForm),
               generationSeed,
+              ...(request.continuationAudioPath
+                ? { continuationAudio: request.continuationAudioPath }
+                : {}),
+              ...(request.continuationText
+                ? { continuationText: request.continuationText }
+                : {}),
             }
           : {}),
       },

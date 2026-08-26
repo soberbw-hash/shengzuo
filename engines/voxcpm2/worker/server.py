@@ -212,6 +212,21 @@ class WorkerState:
             reference_text = str(payload.get("referenceText", "")).strip()
             if len(reference_text) > 1_000:
                 raise RuntimeError("INVALID_REFERENCE_TEXT")
+            continuation_audio: Path | None = None
+            continuation_text = str(payload.get("continuationText", "")).strip()
+            raw_continuation_audio = str(
+                payload.get("continuationAudio", "")
+            ).strip()
+            if raw_continuation_audio:
+                continuation_audio = Path(raw_continuation_audio).resolve()
+                if not continuation_audio.is_file() or not is_within(
+                    continuation_audio, self.output_root
+                ):
+                    raise RuntimeError("INVALID_CONTINUATION_AUDIO")
+                if not continuation_text or len(continuation_text) > 20_000:
+                    raise RuntimeError("INVALID_CONTINUATION_TEXT")
+            elif continuation_text:
+                raise RuntimeError("INVALID_CONTINUATION_AUDIO")
 
             expression = str(payload.get("expression", "")).strip()[:200]
             normalized_text = re.sub(r"\s+", " ", text.replace("\r", " ")).strip()
@@ -232,6 +247,7 @@ class WorkerState:
             with tempfile.TemporaryDirectory(dir=self.output_root) as temporary_name:
                 temporary = Path(temporary_name)
                 normalized_reference: Path | None = None
+                normalized_continuation: Path | None = None
                 raw_output = temporary / "generated.wav"
                 if reference_audio is not None:
                     source_stat = reference_audio.stat()
@@ -329,6 +345,27 @@ class WorkerState:
                         int(reference_rate),
                     )
 
+                if continuation_audio is not None:
+                    normalized_continuation = temporary / "continuation.wav"
+                    subprocess.run(
+                        [
+                            ffmpeg,
+                            "-y",
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-i",
+                            str(continuation_audio),
+                            "-ac",
+                            "1",
+                            "-ar",
+                            "16000",
+                            str(normalized_continuation),
+                        ],
+                        check=True,
+                        capture_output=True,
+                    )
+
                 sample_rate = int(self.model.tts_model.sample_rate)
                 generated_chunks: list[np.ndarray] = []
                 calibration_paces: list[float] = []
@@ -380,8 +417,16 @@ class WorkerState:
                         generation_options["reference_wav_path"] = str(
                             normalized_reference
                         )
+                    # 长稿连续模式：上一段实际生成的音频和原文作为 prompt，
+                    # 同时保留 reference_wav_path 锁定说话人。这样每段不会
+                    # 从同一参考音频重新起一个独立的音高/韵律轨迹。
+                    if normalized_continuation is not None:
+                        generation_options["prompt_wav_path"] = str(
+                            normalized_continuation
+                        )
+                        generation_options["prompt_text"] = continuation_text
                     # 极致克隆是显式模式：只有逐字稿经过长度校验后才进入续写路径。
-                    if vox_mode == "ultimate" and normalized_reference is not None:
+                    elif vox_mode == "ultimate" and normalized_reference is not None:
                         generation_options["prompt_wav_path"] = str(
                             normalized_reference
                         )
