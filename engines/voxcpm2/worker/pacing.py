@@ -66,14 +66,14 @@ def _boundary_penalty(text: str, actual_end: int, is_final: bool) -> float:
 
 def split_for_stable_pacing(
     text: str,
-    limit: int = 55,
-    target_min: int = 30,
-    target_max: int = 50,
+    limit: int = 160,
+    target_min: int = 90,
+    target_max: int = 140,
 ) -> list[str]:
     """Split text into balanced, punctuation-aware chunks without losing text.
 
-    The dynamic partitioner targets 30--50 visible characters, never exceeds
-    the 55-character hard limit, and strongly avoids leaving a tiny last
+    The dynamic partitioner targets 90--140 visible characters, never exceeds
+    the 160-character hard limit, and strongly avoids leaving a tiny last
     sentence on its own. Whitespace is normalized because it has no spoken
     value; every other character remains in its original order.
     """

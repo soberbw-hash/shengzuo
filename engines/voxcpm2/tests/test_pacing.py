@@ -21,14 +21,14 @@ class VoxPacingTests(unittest.TestCase):
         source = "第一句比较短。第二句也不长！" + "很长的内容，" * 12 + "结束。"
         chunks = split_for_stable_pacing(source)
         lengths = [len(chunk.replace(" ", "")) for chunk in chunks]
-        self.assertTrue(all(length <= 55 for length in lengths))
+        self.assertTrue(all(length <= 160 for length in lengths))
         self.assertTrue(all(length >= 20 for length in lengths))
         self.assertEqual("".join(chunks).replace(" ", ""), source)
 
     def test_rebalances_a_tiny_tail_instead_of_leaving_an_orphan(self) -> None:
-        source = "甲" * 56
+        source = "甲" * 181
         chunks = split_for_stable_pacing(source)
-        self.assertEqual([len(chunk) for chunk in chunks], [28, 28])
+        self.assertEqual([len(chunk) for chunk in chunks], [90, 91])
         self.assertEqual("".join(chunks), source)
 
     def test_counts_chinese_latin_digits_and_other_scripts(self) -> None:

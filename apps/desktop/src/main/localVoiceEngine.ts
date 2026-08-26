@@ -416,7 +416,11 @@ const safeChunkSize = (
   modelId: ModelId,
   mode: GenerationQualityMode,
 ): number => {
-  if (modelId === "voxcpm2") return mode === "careful" ? 52 : 70;
+  // VoxCPM2's worker now performs bounded continuation inside each request.
+  // Keeping the Main-side chunks at the same scale as the other engines avoids
+  // creating a new prosody boundary every few words while retaining recovery
+  // and cache checkpoints for genuinely long scripts.
+  if (modelId === "voxcpm2") return mode === "careful" ? 120 : 160;
   return mode === "careful" ? 120 : 160;
 };
 

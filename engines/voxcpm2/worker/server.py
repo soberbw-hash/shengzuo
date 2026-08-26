@@ -372,6 +372,11 @@ class WorkerState:
                 pace_retries = 0
                 pace_corrections = 0
                 design_prompt = temporary / "design-prompt.wav"
+                # Each internal chunk continues from the clean chunk immediately
+                # before it.  This keeps the longer worker request coherent without
+                # feeding the entire accumulated take back into the model.
+                active_continuation_audio = normalized_continuation
+                active_continuation_text = continuation_text
                 seed_generation(torch, np, generation_seed)
 
                 for index, chunk in enumerate(text_chunks):
@@ -420,11 +425,11 @@ class WorkerState:
                     # 长稿连续模式：上一段实际生成的音频和原文作为 prompt，
                     # 同时保留 reference_wav_path 锁定说话人。这样每段不会
                     # 从同一参考音频重新起一个独立的音高/韵律轨迹。
-                    if normalized_continuation is not None:
+                    if active_continuation_audio is not None:
                         generation_options["prompt_wav_path"] = str(
-                            normalized_continuation
+                            active_continuation_audio
                         )
-                        generation_options["prompt_text"] = continuation_text
+                        generation_options["prompt_text"] = active_continuation_text
                     # 极致克隆是显式模式：只有逐字稿经过长度校验后才进入续写路径。
                     elif vox_mode == "ultimate" and normalized_reference is not None:
                         generation_options["prompt_wav_path"] = str(
@@ -527,6 +532,10 @@ class WorkerState:
                             and len(calibration_paces) < 3
                         ):
                             calibration_paces.append(effective_pace)
+                    continuation_prompt = temporary / f"continuation-{index}.wav"
+                    sf.write(continuation_prompt, waveform, sample_rate)
+                    active_continuation_audio = continuation_prompt
+                    active_continuation_text = chunk
                     if vox_mode == "design" and index == 0:
                         sf.write(design_prompt, waveform, sample_rate)
                     fade_samples = min(int(sample_rate * 0.012), waveform.size // 2)
