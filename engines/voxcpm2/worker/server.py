@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import random
 import re
@@ -109,6 +110,8 @@ def is_within(candidate: Path, root: Path) -> bool:
 
 
 def public_error_code(error: Exception) -> str:
+    if isinstance(error, MemoryError) or getattr(error, "winerror", None) == 1455:
+        return "SYSTEM_MEMORY_LOW"
     raw = str(error).strip()
     if re.fullmatch(r"[A-Z][A-Z0-9_]{2,79}", raw):
         return raw
@@ -182,7 +185,7 @@ class WorkerState:
                 raise RuntimeError("UNSUPPORTED_LANGUAGE")
             speed = float(payload.get("speed", 1.0))
             volume = float(payload.get("volume", 100.0))
-            if speed < 0.5 or speed > 2.0 or volume < 0 or volume > 150:
+            if not math.isfinite(speed) or not math.isfinite(volume) or speed < 0.5 or speed > 2.0 or volume < 0 or volume > 150:
                 raise RuntimeError("INVALID_AUDIO_SETTINGS")
             long_form = should_use_long_form(
                 text, parse_long_form(payload.get("longForm", False))
@@ -356,6 +359,8 @@ class WorkerState:
                             "error",
                             "-i",
                             str(continuation_audio),
+                            "-filter:a",
+                            f"atempo={1 / speed:.6f}",
                             "-ac",
                             "1",
                             "-ar",
@@ -366,15 +371,24 @@ class WorkerState:
                         capture_output=True,
                     )
 
+                    # Exported prompts already carry the user's speed. Undo it
+                    # before conditioning so speed is not applied again per chunk.
+                    # Keep the COMPLETE audio/transcript pair, or fall back to
+                    # the original reference. Cropping only audio corrupts alignment.
+                    info = sf.info(normalized_continuation)
+                    if not math.isfinite(info.duration) or info.duration <= 0:
+                        raise RuntimeError("INVALID_CONTINUATION_AUDIO")
+                    if info.duration > 30:
+                        normalized_continuation = None
+
                 sample_rate = int(self.model.tts_model.sample_rate)
                 generated_chunks: list[np.ndarray] = []
                 calibration_paces: list[float] = []
                 pace_retries = 0
                 pace_corrections = 0
                 design_prompt = temporary / "design-prompt.wav"
-                # Each internal chunk continues from the clean chunk immediately
-                # before it.  This keeps the longer worker request coherent without
-                # feeding the entire accumulated take back into the model.
+                # Freeze one early prompt instead of recursively feeding generated
+                # voices into later chunks (which accumulates timbre/prosody drift).
                 active_continuation_audio = normalized_continuation
                 active_continuation_text = continuation_text
                 seed_generation(torch, np, generation_seed)
@@ -422,9 +436,7 @@ class WorkerState:
                         generation_options["reference_wav_path"] = str(
                             normalized_reference
                         )
-                    # 长稿连续模式：上一段实际生成的音频和原文作为 prompt，
-                    # 同时保留 reference_wav_path 锁定说话人。这样每段不会
-                    # 从同一参考音频重新起一个独立的音高/韵律轨迹。
+                    # 长稿固定锚点：完整音频/原文配对，并保留原录音锁定说话人。
                     if active_continuation_audio is not None:
                         generation_options["prompt_wav_path"] = str(
                             active_continuation_audio
@@ -532,10 +544,15 @@ class WorkerState:
                             and len(calibration_paces) < 3
                         ):
                             calibration_paces.append(effective_pace)
-                    continuation_prompt = temporary / f"continuation-{index}.wav"
-                    sf.write(continuation_prompt, waveform, sample_rate)
-                    active_continuation_audio = continuation_prompt
-                    active_continuation_text = chunk
+                    if (
+                        long_form and vox_mode != "design"
+                        and active_continuation_audio is None
+                        and 2 <= waveform.size / sample_rate <= 30
+                    ):
+                        continuation_prompt = temporary / "continuation-anchor.wav"
+                        sf.write(continuation_prompt, waveform, sample_rate)
+                        active_continuation_audio = continuation_prompt
+                        active_continuation_text = chunk
                     if vox_mode == "design" and index == 0:
                         sf.write(design_prompt, waveform, sample_rate)
                     fade_samples = min(int(sample_rate * 0.012), waveform.size // 2)
@@ -649,6 +666,16 @@ class VoiceWorkerHandler(BaseHTTPRequestHandler):
             else:
                 self.send_json(404, {"ok": False, "code": "NOT_FOUND"})
         except Exception as error:
+            if os.environ.get("SHENGZUO_WORKER_DEBUG") == "1":
+                import traceback
+                frames = traceback.extract_tb(error.__traceback__)
+                # Test-only diagnostics: no message, text, tokens or private paths.
+                print(json.dumps({
+                    "errorType": type(error).__name__,
+                    "errorCode": public_error_code(error),
+                    "stages": [f"{Path(frame.filename).name}:{frame.name}:{frame.lineno}" for frame in frames[-4:]],
+                    "missingModule": getattr(error, "name", None) if isinstance(error, ModuleNotFoundError) else None,
+                }), file=sys.stderr, flush=True)
             self.send_json(500, {"ok": False, "code": public_error_code(error)})
 
     def handle_handshake(self) -> None:

@@ -1,6 +1,6 @@
 {
   "name": "shengzuo-workspace",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "声作是一款 Windows 本地声音克隆、长稿配音与多人脚本工作台",
   "author": {
     "name": "声作"
@@ -8,7 +8,7 @@
   "private": true,
   "packageManager": "pnpm@10.14.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "assets:generate": "node scripts/generate-test-audio.mjs",
@@ -20,7 +20,7 @@
     "lint": "eslint . --max-warnings=0",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "pnpm -r --if-present test",
+    "test": "pnpm -r --if-present test && node --test tests/workbook-narration-fixture.test.cjs",
     "package:win": "pnpm --dir apps/desktop package:win",
     "package:review": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1",
     "visual:capture": "pnpm build && node scripts/capture-visuals.cjs",

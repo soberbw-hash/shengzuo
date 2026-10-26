@@ -1,5 +1,5 @@
 import { Download, FolderOpen, Pause, Play, RotateCcw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 
 import type { AudioResult } from "@ai-voice-studio/shared-types";
 import { Button, GlassCard } from "@ai-voice-studio/ui";
@@ -7,7 +7,9 @@ import { Button, GlassCard } from "@ai-voice-studio/ui";
 import { desktopApi } from "../lib/desktopApi";
 import { getUserErrorMessage } from "../lib/errorMessage";
 import { exportAudioResult } from "../lib/exportAudio";
+import { clampPlaybackTime, keyboardSeekTime } from "../lib/playerSeek";
 import { useStudioStore } from "../store/studioStore";
+import { useAudioPlayback } from "../hooks/useAudioPlayback";
 
 const waveform = [
   28, 45, 36, 64, 48, 78, 52, 38, 70, 86, 55, 42, 68, 80, 46, 58, 34, 72, 48,
@@ -30,41 +32,31 @@ export const AudioPlayer = ({
   onRegenerate: () => void;
   compact?: boolean;
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(result.durationSeconds);
+  const { audioRef, playing, currentTime, duration, progress, toggle, seekTo } =
+    useAudioPlayback(result.url, result.durationSeconds);
   const pushToast = useStudioStore((state) => state.pushToast);
-  const source = useMemo(() => result.url, [result.url]);
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const source = result.url;
 
-  useEffect(() => {
+  const seek = (event: MouseEvent<HTMLElement>) => {
+    const audio = audioRef.current;
+    if (!audio || duration <= 0 || event.detail === 0) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    seekTo(
+      clampPlaybackTime(
+        ((event.clientX - rect.left) / rect.width) * duration,
+        duration,
+      ),
+    );
+  };
+
+  const seekWithKeyboard = (event: KeyboardEvent<HTMLElement>) => {
     const audio = audioRef.current;
     if (!audio) return;
-    const timeUpdate = () => setCurrentTime(audio.currentTime);
-    const metadata = () =>
-      setDuration(audio.duration || result.durationSeconds);
-    const ended = () => setPlaying(false);
-    audio.addEventListener("timeupdate", timeUpdate);
-    audio.addEventListener("loadedmetadata", metadata);
-    audio.addEventListener("ended", ended);
-    return () => {
-      audio.removeEventListener("timeupdate", timeUpdate);
-      audio.removeEventListener("loadedmetadata", metadata);
-      audio.removeEventListener("ended", ended);
-    };
-  }, [result.durationSeconds]);
-
-  const toggle = async () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      await audio.play();
-      setPlaying(true);
-    } else {
-      audio.pause();
-      setPlaying(false);
-    }
+    const nextTime = keyboardSeekTime(event.key, audio.currentTime, duration);
+    if (nextTime === undefined) return;
+    event.preventDefault();
+    seekTo(nextTime);
   };
 
   const exportAudio = async () => {
@@ -87,16 +79,24 @@ export const AudioPlayer = ({
   };
 
   const openFolder = async () => {
-    const opened = await desktopApi.audio.openExportFolder();
-    pushToast(
-      opened
-        ? { title: "已打开导出位置", tone: "success" }
-        : {
-            title: "请先导出一次音频",
-            description: "导出后即可直接打开所在文件夹。",
-            tone: "info",
-          },
-    );
+    try {
+      const opened = await desktopApi.audio.openExportFolder();
+      pushToast(
+        opened
+          ? { title: "已打开导出位置", tone: "success" }
+          : {
+              title: "请先导出一次音频",
+              description: "导出后即可直接打开所在文件夹。",
+              tone: "info",
+            },
+      );
+    } catch {
+      pushToast({
+        title: "没有打开导出位置",
+        description: "请确认文件夹仍然存在后重试。",
+        tone: "danger",
+      });
+    }
   };
 
   if (compact) {
@@ -125,16 +125,19 @@ export const AudioPlayer = ({
             type="button"
             className="compact-audio-progress"
             aria-label="调整播放进度"
-            onClick={(event) => {
-              const audio = audioRef.current;
-              if (!audio || duration <= 0) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              audio.currentTime =
-                ((event.clientX - rect.left) / rect.width) * duration;
-            }}
+            role="slider"
+            aria-valuemin={0}
+            aria-valuemax={duration}
+            aria-valuenow={currentTime}
+            aria-valuetext={`${formatTime(currentTime)} / ${formatTime(duration)}`}
+            onClick={seek}
+            onKeyDown={seekWithKeyboard}
           >
             <span style={{ width: `${progress}%` }} />
           </button>
+          {result.quality?.status === "warning" ? (
+            <small title={result.quality.note}>有质量提醒，建议试听</small>
+          ) : null}
         </div>
         <button
           type="button"
@@ -195,13 +198,9 @@ export const AudioPlayer = ({
             aria-valuemax={duration}
             aria-valuenow={currentTime}
             tabIndex={0}
-            onClick={(event) => {
-              const audio = audioRef.current;
-              if (!audio || duration <= 0) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              audio.currentTime =
-                ((event.clientX - rect.left) / rect.width) * duration;
-            }}
+            aria-valuetext={`${formatTime(currentTime)} / ${formatTime(duration)}`}
+            onClick={seek}
+            onKeyDown={seekWithKeyboard}
           >
             {waveform.map((height, index) => {
               const active = (index / waveform.length) * 100 <= progress;

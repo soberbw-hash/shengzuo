@@ -1,5 +1,4 @@
 import { Download, Heart, Pause, Pencil, Play, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   MODEL_CATALOG,
@@ -12,6 +11,8 @@ import { exportAudioResult } from "../lib/exportAudio";
 import { getUserErrorMessage } from "../lib/errorMessage";
 import { resolveResultTitle } from "../lib/projectNaming";
 import { useStudioStore } from "../store/studioStore";
+import { useAudioPlayback } from "../hooks/useAudioPlayback";
+import { keyboardSeekTime } from "../lib/playerSeek";
 
 const formatDuration = (seconds: number): string => {
   const safe = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
@@ -44,13 +45,17 @@ export const HistoryAudioRow = ({
   onToggleFavorite: (result: AudioResult) => Promise<void>;
   onDelete: (result: AudioResult) => void;
 }) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(result.durationSeconds);
+  const {
+    audioRef,
+    playing,
+    currentTime,
+    duration,
+    progress,
+    toggle: togglePlayback,
+    seekTo,
+  } = useAudioPlayback(result.url, result.durationSeconds);
   const pushToast = useStudioStore((state) => state.pushToast);
-  const source = useMemo(() => result.url, [result.url]);
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const source = result.url;
   const modelName =
     MODEL_CATALOG.find((model) => model.id === result.modelId)?.name ??
     "本地模型";
@@ -90,40 +95,8 @@ export const HistoryAudioRow = ({
     .filter(Boolean)
     .join(" · ");
 
-  useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const updateTime = () => setCurrentTime(audio.currentTime);
-    const updateDuration = () =>
-      setDuration(audio.duration || result.durationSeconds);
-    const stop = () => setPlaying(false);
-    audio.addEventListener("timeupdate", updateTime);
-    audio.addEventListener("loadedmetadata", updateDuration);
-    audio.addEventListener("ended", stop);
-    return () => {
-      audio.removeEventListener("timeupdate", updateTime);
-      audio.removeEventListener("loadedmetadata", updateDuration);
-      audio.removeEventListener("ended", stop);
-    };
-  }, [result.durationSeconds]);
-
-  const togglePlayback = async () => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      await audio.play();
-      setPlaying(true);
-    } else {
-      audio.pause();
-      setPlaying(false);
-    }
-  };
-
   const seek = (percentage: number) => {
-    const audio = audioRef.current;
-    if (!audio || duration <= 0) return;
-    audio.currentTime =
-      (Math.min(100, Math.max(0, percentage)) / 100) * duration;
+    seekTo((Math.min(100, Math.max(0, percentage)) / 100) * duration);
   };
 
   const exportAudio = async () => {
@@ -164,7 +137,17 @@ export const HistoryAudioRow = ({
         </button>
 
         <div className="history-audio-info">
-          <strong title={rowTitle}>{rowTitle}</strong>
+          <div className="history-audio-title">
+            <strong title={rowTitle}>{rowTitle}</strong>
+            {result.quality?.status === "warning" ? (
+              <span
+                className="history-quality-warning"
+                title={result.quality.note}
+              >
+                建议试听
+              </span>
+            ) : null}
+          </div>
           <small title={rowMeta}>{rowMeta}</small>
         </div>
         <time dateTime={result.createdAt}>{formatTime(result.createdAt)}</time>
@@ -180,12 +163,20 @@ export const HistoryAudioRow = ({
           aria-valuenow={Math.round(progress)}
           role="slider"
           onClick={(event) => {
+            if (event.detail === 0) return;
             const rect = event.currentTarget.getBoundingClientRect();
+            if (rect.width <= 0) return;
             seek(((event.clientX - rect.left) / rect.width) * 100);
           }}
           onKeyDown={(event) => {
-            if (event.key === "ArrowLeft") seek(progress - 5);
-            if (event.key === "ArrowRight") seek(progress + 5);
+            const nextTime = keyboardSeekTime(
+              event.key,
+              audioRef.current?.currentTime ?? currentTime,
+              duration,
+            );
+            if (nextTime === undefined) return;
+            event.preventDefault();
+            seekTo(nextTime);
           }}
         >
           <span style={{ width: `${progress}%` }} />

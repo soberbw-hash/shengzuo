@@ -86,6 +86,12 @@ class WorkerErrorTests(unittest.TestCase):
             "VOICE_SAMPLE_NOT_FOUND",
         )
 
+    def test_classifies_windows_commit_limit_and_empty_memory_errors(self) -> None:
+        self.assertEqual(public_error_code(MemoryError()), "SYSTEM_MEMORY_LOW")
+        windows_error = OSError("private DLL path must not leak")
+        windows_error.winerror = 1455
+        self.assertEqual(public_error_code(windows_error), "SYSTEM_MEMORY_LOW")
+
     def test_classifies_gpu_memory_without_leaking_technical_details(self) -> None:
         self.assertEqual(
             public_error_code(RuntimeError("CUDA out of memory at a private path")),

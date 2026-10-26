@@ -32,7 +32,7 @@ $version = [string]$desktopPackage.version
 $packageName = if ($PackageName.Trim()) {
   $PackageName.Trim()
 } else {
-  "声作-完整便携版-$ReleaseDate"
+  "声作-$version-完整便携版-$ReleaseDate"
 }
 if (
   $packageName -in @('.', '..') -or
@@ -140,8 +140,8 @@ $presetVoicesMarker = Join-Path $presetVoicesRoot '.shengzuo-preset-voices'
 $runtimeLicenseRoot = Join-Path $appRoot 'licenses\runtime'
 New-Item -ItemType Directory -Path $runtimeLicenseRoot -Force | Out-Null
 $runtimeLicensePackages = @(
-  @('electron', '35.7.5'),
-  @('fflate', '0.8.2'),
+  @('electron', '44.7.0'),
+  @('fflate', '0.8.3'),
   @('framer-motion', '11.18.2'),
   @('motion-dom', '11.18.1'),
   @('motion-utils', '11.18.1'),
@@ -152,8 +152,8 @@ $runtimeLicensePackages = @(
   @('js-tokens', '4.0.0'),
   @('tslib', '2.8.1'),
   @('lucide-react', '0.511.0'),
-  @('react-router-dom', '7.7.1'),
-  @('react-router', '7.7.1'),
+  @('react-router-dom', '7.18.4'),
+  @('react-router', '7.18.4'),
   @('cookie', '1.1.1'),
   @('set-cookie-parser', '2.7.2'),
   @('zustand', '5.0.6'),

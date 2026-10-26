@@ -13,7 +13,7 @@
 
 <p align="center">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-3b82f6" />
-  <img alt="版本 1.0.0" src="https://img.shields.io/badge/version-1.0.0-22a67a" />
+  <img alt="版本 1.0.1" src="https://img.shields.io/badge/version-1.0.1-22a67a" />
   <img alt="本地运行" src="https://img.shields.io/badge/voice-local--first-60a5fa" />
   <img alt="保留全部权利" src="https://img.shields.io/badge/license-All%20Rights%20Reserved-64748b" />
 </p>
@@ -154,7 +154,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package
 正式发布时可以固定英文资产名：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1 -ReleaseDate "2026-08-21" -PackageName "ShengZuo-1.0.0-Windows-Portable"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1 -ReleaseDate "2026-10-26" -PackageName "ShengZuo-1.0.1-Windows-Portable"
 ```
 
 本机三款模型完整安装后，生成含模型文件夹：

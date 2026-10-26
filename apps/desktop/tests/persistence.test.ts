@@ -106,6 +106,19 @@ void test("a task interrupted during generation is recovered into the queue", as
       await readFile(path.join(root, "generation-tasks.json"), "utf8"),
     ) as unknown[];
     assert.equal(persisted.length, 1);
+
+    const manyTasks = Array.from(
+      { length: 125 },
+      (_, index): StoredGenerationTask => ({
+        ...task,
+        id: `task-preserve-${index}`,
+        status: index === 124 ? "queued" : "completed",
+      }),
+    );
+    await store.save(manyTasks);
+    const restoredTasks = await store.load();
+    assert.equal(restoredTasks.length, 125);
+    assert.equal(restoredTasks[124]?.status, "queued");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

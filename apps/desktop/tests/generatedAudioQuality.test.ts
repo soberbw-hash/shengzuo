@@ -1,5 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { shouldUseStrictPaceCalibration } from "../src/main/generatedAudioQuality";
+
+void test("mixed product names and digits retain normal checks without narrow opening calibration", () => {
+  assert.equal(
+    shouldUseStrictPaceCalibration("AMD 显卡和 DXP4800Plus 的长稿说明"),
+    false,
+  );
+  assert.equal(
+    shouldUseStrictPaceCalibration("7 月份的绿联 NAS 更新来了"),
+    false,
+  );
+  assert.equal(
+    shouldUseStrictPaceCalibration("今天介绍声音清晰自然的中文长稿。"),
+    true,
+  );
+});
 
 import {
   assessGeneratedAudio,

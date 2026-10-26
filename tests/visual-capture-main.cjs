@@ -1,11 +1,28 @@
 const { mkdir, rm, writeFile } = require("node:fs/promises");
 const path = require("node:path");
+const { mkdirSync } = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const { app, BrowserWindow, session } = require("electron");
+
+// Keep animation frames live in a hidden test renderer; never activate or move
+// a window on the user's desktop to obtain screenshots.
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
 
 const { inspectModelCardsLayout } = require("./model-layout-audit.cjs");
 const { inspectTextLayout } = require("./text-layout-audit.cjs");
 
 const root = path.resolve(__dirname, "..");
+const profileRoot = path.join(
+  root,
+  "artifacts",
+  "runtime-cache",
+  `visual-${randomUUID()}`,
+);
+mkdirSync(profileRoot, { recursive: true });
+app.setPath("userData", profileRoot);
+app.setPath("sessionData", profileRoot);
 const outputRoot = path.join(
   root,
   "artifacts",
@@ -460,6 +477,7 @@ void app
       useContentSize: true,
       backgroundColor: "#edf5ff",
       webPreferences: {
+        offscreen: true,
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
@@ -469,8 +487,8 @@ void app
     window.webContents.on("console-message", (_event, level, message) => {
       if (level >= 2) consoleErrors.push(message);
     });
-    window.setPosition(-10_000, -10_000, false);
-    window.showInactive();
+    window.webContents.setFrameRate(60);
+    window.webContents.setAudioMuted(true);
 
     for (const scenario of scenarios) {
       consoleErrors.length = 0;

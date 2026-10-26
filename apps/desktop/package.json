@@ -1,6 +1,6 @@
 {
   "name": "shengzuo-desktop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "声作是一款 Windows 本地声音克隆、长稿配音与多人脚本工作台",
   "author": "声作",
@@ -27,12 +27,12 @@
     "@ai-voice-studio/mock-engine": "workspace:*",
     "@ai-voice-studio/shared-types": "workspace:*",
     "@ai-voice-studio/ui": "workspace:*",
-    "fflate": "0.8.2",
+    "fflate": "0.8.3",
     "framer-motion": "11.18.2",
     "lucide-react": "0.511.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
-    "react-router-dom": "7.7.1",
+    "react-router-dom": "7.18.4",
     "zustand": "5.0.6"
   },
   "devDependencies": {
@@ -41,7 +41,7 @@
     "@vitejs/plugin-react-swc": "3.10.2",
     "autoprefixer": "10.4.21",
     "concurrently": "9.2.0",
-    "electron": "35.7.5",
+    "electron": "44.7.0",
     "electron-builder": "26.0.12",
     "postcss": "8.5.6",
     "tailwindcss": "3.4.17",

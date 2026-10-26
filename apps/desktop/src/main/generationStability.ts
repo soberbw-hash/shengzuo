@@ -4,7 +4,7 @@ import { MAX_GENERATION_RETRY_EPOCH } from "@ai-voice-studio/shared-types";
 
 import type { GeneratedAudioAssessment } from "./generatedAudioQuality";
 
-export const GENERATION_STABILITY_VERSION = "vox-longform-v2";
+export const GENERATION_STABILITY_VERSION = "vox-longform-v3-fixed-anchor";
 export const BATCH_CACHE_VERSION = 2;
 
 export interface SegmentFingerprintInput {
@@ -24,7 +24,7 @@ export interface SegmentFingerprintInput {
   generationSeed: number;
   longForm: boolean;
   /**
-   * The previous segment's fingerprint participates in long-form cache keys.
+   * The stable anchor's request AND audio checksum participate in cache keys.
    * A segment generated with a different continuation must never be reused.
    */
   continuationFingerprint?: string;

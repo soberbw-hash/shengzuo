@@ -2,6 +2,9 @@ node_modules
 dist
 dist-electron
 release
+deliverables
+.tools
+artifacts/integration
 artifacts/visual-regression
 artifacts/runtime-cache
 artifacts/integration/indextts2-5-audit

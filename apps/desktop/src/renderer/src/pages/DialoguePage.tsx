@@ -7,6 +7,7 @@ import {
   Sparkles,
   Trash2,
   Upload,
+  Undo2,
 } from "lucide-react";
 import {
   useCallback,
@@ -58,6 +59,7 @@ import { GenerationAssistControls } from "../components/GenerationAssistControls
 import { ModelLanguageSelect } from "../components/ModelLanguageSelect";
 import { PerformanceControls } from "../components/PerformanceControls";
 import { SectionHeading } from "../components/SectionHeading";
+import { useDeletionRecovery } from "../hooks/useDeletionRecovery";
 import { desktopApi } from "../lib/desktopApi";
 import { getUserErrorMessage } from "../lib/errorMessage";
 import {
@@ -113,6 +115,14 @@ export const DialoguePage = () => {
   const [projectTitle, setProjectTitle] = useState(createDefaultProjectTitle);
   const [lines, setLines] = useState<DialogueLine[]>([createLine("旁白", "")]);
   const [scriptInput, setScriptInput] = useState("");
+  const deletionRecovery = useDeletionRecovery(
+    lines,
+    setLines,
+    `${projectId}\0${scriptInput}`,
+    MAX_DIALOGUE_LINES,
+    createLine,
+  );
+  const clearDeletionHistory = deletionRecovery.clear;
   const [organizingScript, setOrganizingScript] = useState(false);
   const [draggingScript, setDraggingScript] = useState(false);
   const [smartDialogueReview, setSmartDialogueReview] =
@@ -266,6 +276,7 @@ export const DialoguePage = () => {
   };
 
   const resetForNewProject = useCallback(() => {
+    clearDeletionHistory();
     clearResumeState();
     clearCreationDraft("dialogue");
     setProjectId("");
@@ -279,7 +290,7 @@ export const DialoguePage = () => {
     current.setPresetId("natural");
     current.setPronunciationRules([]);
     setDraftHydrated(true);
-  }, []);
+  }, [clearDeletionHistory]);
 
   const applyDraft = useCallback((draft: DialogueCreationDraft) => {
     const current = useStudioStore.getState();
@@ -456,14 +467,11 @@ export const DialoguePage = () => {
   };
 
   const removeLine = (id: string) => {
-    setLines((current) =>
-      current.length === 1
-        ? [createLine()]
-        : current.filter((line) => line.id !== id),
-    );
+    deletionRecovery.remove(id);
   };
 
   const recognizeScript = () => {
+    clearDeletionHistory();
     const parsed = parseDialogueScript(scriptInput).slice(
       0,
       MAX_DIALOGUE_LINES,
@@ -550,6 +558,7 @@ export const DialoguePage = () => {
       text: line.text,
     }));
     setLines(nextLines);
+    clearDeletionHistory();
     setScriptInput(
       smartDialogueReview.lines
         .map((line) => `${line.role}：${line.text}`)
@@ -785,17 +794,29 @@ export const DialoguePage = () => {
             title="对话台词"
             description={`${lines.length} 句 · ${activeRoles.length} 个角色；可直接粘贴“角色名：台词”。`}
             action={
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={lines.length >= MAX_DIALOGUE_LINES}
-                onClick={() =>
-                  setLines((current) => [...current, createLine()])
-                }
-              >
-                <Plus className="h-3.5 w-3.5" />
-                添加一句
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!deletionRecovery.canUndo}
+                  onClick={deletionRecovery.undo}
+                  title="恢复最近删除的一句，可连续撤销"
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                  撤销删除
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={lines.length >= MAX_DIALOGUE_LINES}
+                  onClick={() =>
+                    setLines((current) => [...current, createLine()])
+                  }
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  添加一句
+                </Button>
+              </div>
             }
           />
           <div

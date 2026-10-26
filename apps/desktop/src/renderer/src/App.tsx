@@ -18,6 +18,7 @@ import { ToastRegion } from "./components/ToastRegion";
 import { WindowTitleBar } from "./components/WindowTitleBar";
 import { desktopApi } from "./lib/desktopApi";
 import { featureRegistry } from "./featureRegistry";
+import { pauseOtherAudio } from "./lib/audioFocus";
 import { useStudioStore } from "./store/studioStore";
 
 const RoutedContent = () => {
@@ -48,6 +49,15 @@ const RoutedContent = () => {
 };
 
 const AppBootstrap = () => {
+  useEffect(() => {
+    const onPlay = (event: Event) => {
+      if (event.target instanceof HTMLAudioElement) {
+        pauseOtherAudio(event.target, document.querySelectorAll("audio"));
+      }
+    };
+    document.addEventListener("play", onPlay, true);
+    return () => document.removeEventListener("play", onPlay, true);
+  }, []);
   const setEngine = useStudioStore((state) => state.setEngine);
   const setEngines = useStudioStore((state) => state.setEngines);
   const setResults = useStudioStore((state) => state.setResults);

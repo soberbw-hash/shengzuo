@@ -12,8 +12,10 @@ const LATEST_RELEASE_API_URL =
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
+class UpdateServiceError extends Error {}
+
 const readRelease = (value: unknown): ReleaseSummary => {
-  if (!isRecord(value)) throw new Error("更新信息内容不完整。");
+  if (!isRecord(value)) throw new UpdateServiceError("更新信息内容不完整。");
   const tagName = value.tag_name;
   const name = value.name;
   const htmlUrl = value.html_url;
@@ -22,7 +24,7 @@ const readRelease = (value: unknown): ReleaseSummary => {
     typeof htmlUrl !== "string" ||
     !htmlUrl.startsWith("https://github.com/soberbw-hash/shengzuo/releases/")
   ) {
-    throw new Error("更新信息内容不完整。");
+    throw new UpdateServiceError("更新信息内容不完整。");
   }
 
   const assets = Array.isArray(value.assets)
@@ -71,9 +73,9 @@ export const checkForAppUpdates = async (
     });
     if (!response.ok) {
       if (response.status === 404) {
-        throw new Error("暂时没有可用的正式版本。");
+        throw new UpdateServiceError("暂时没有可用的正式版本。");
       }
-      throw new Error(`连接更新服务失败（${response.status}）。`);
+      throw new UpdateServiceError(`连接更新服务失败（${response.status}）。`);
     }
     const payload: unknown = await response.json();
     return createUpdateCheckResult(currentVersion, readRelease(payload));
@@ -81,7 +83,7 @@ export const checkForAppUpdates = async (
     if (error instanceof Error && error.name === "AbortError") {
       throw new Error("检查更新超时，请稍后重试。");
     }
-    if (error instanceof Error) throw error;
+    if (error instanceof UpdateServiceError) throw error;
     throw new Error("检查更新失败，请确认网络后重试。");
   } finally {
     clearTimeout(timeout);

@@ -3,9 +3,9 @@ productName: "声作"
 copyright: "Copyright © 2026 声作"
 asar: true
 npmRebuild: false
-electronVersion: 35.7.5
+electronVersion: 44.7.0
 directories:
-  output: apps/desktop/release
+  output: "apps/desktop/release/${version}"
   buildResources: apps/desktop/build
 files:
   - "apps/desktop/dist/**"

@@ -237,6 +237,12 @@ export const isAssessmentBetter = (
   );
 };
 
+// English acronyms, product identifiers and digits have uncertain spoken-unit
+// estimates. Do not use the extra-narrow opening calibration for mixed scripts;
+// their regular pace, silence, clipping and pitch checks still apply.
+export const shouldUseStrictPaceCalibration = (text: string): boolean =>
+  /\p{Script=Han}/u.test(text) && !/[A-Za-z0-9]/u.test(text);
+
 export const assessGeneratedAudio = (
   metrics: GeneratedAudioMetrics,
   text: string,

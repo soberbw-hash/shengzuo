@@ -8,14 +8,14 @@
 
 | 组件                            | 锁定版本 | 许可                                                                                                       |
 | ------------------------------- | -------: | ---------------------------------------------------------------------------------------------------------- |
-| Electron                        |   35.7.5 | MIT；Chromium 及其第三方通知见 `app/source/apps/desktop/node_modules/electron/dist/LICENSES.chromium.html` |
-| fflate                          |    0.8.2 | MIT；用于在应用内安全读取 DOCX/XLSX，不依赖系统解压命令                                                    |
+| Electron                        |   44.7.0 | MIT；Chromium 及其第三方通知见 `app/source/apps/desktop/node_modules/electron/dist/LICENSES.chromium.html` |
+| fflate                          |    0.8.3 | MIT；用于在应用内安全读取 DOCX/XLSX，不依赖系统解压命令                                                    |
 | React / React DOM               |   18.3.1 | MIT                                                                                                        |
 | Scheduler                       |   0.23.2 | MIT                                                                                                        |
 | Framer Motion                   |  11.18.2 | MIT                                                                                                        |
 | motion-dom / motion-utils       |  11.18.1 | MIT                                                                                                        |
 | Lucide React                    |  0.511.0 | ISC                                                                                                        |
-| React Router DOM / React Router |    7.7.1 | MIT                                                                                                        |
+| React Router DOM / React Router |   7.18.4 | MIT                                                                                                        |
 | Zustand                         |    5.0.6 | MIT                                                                                                        |
 | cookie                          |    1.1.1 | MIT                                                                                                        |
 | set-cookie-parser               |    2.7.2 | MIT                                                                                                        |

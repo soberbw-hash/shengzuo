@@ -1,10 +1,22 @@
 const path = require("node:path");
+const { mkdirSync } = require("node:fs");
+const { randomUUID } = require("node:crypto");
 const { app, BrowserWindow, session } = require("electron");
 
 const { inspectModelCardsLayout } = require("./model-layout-audit.cjs");
 const { inspectTextLayout } = require("./text-layout-audit.cjs");
 
 const root = path.resolve(__dirname, "..");
+const appVersion = require("../apps/desktop/package.json").version;
+const profileRoot = path.join(
+  root,
+  "artifacts",
+  "runtime-cache",
+  `interaction-${randomUUID()}`,
+);
+mkdirSync(profileRoot, { recursive: true });
+app.setPath("userData", profileRoot);
+app.setPath("sessionData", profileRoot);
 const rendererFile = path.join(root, "apps", "desktop", "dist", "index.html");
 const delay = (milliseconds) =>
   new Promise((resolve) => setTimeout(resolve, milliseconds));
@@ -310,6 +322,7 @@ void app
         sandbox: true,
       },
     });
+    window.webContents.setAudioMuted(true);
     window.webContents.on("console-message", (_event, level, message) => {
       if (level >= 2) consoleErrors.push(message);
     });
@@ -480,6 +493,7 @@ void app
         sandbox: true,
       },
     });
+    layoutWindow.webContents.setAudioMuted(true);
     await load(
       layoutWindow,
       "/",
@@ -1054,6 +1068,44 @@ void app
       throw new Error(`30 字试听结果不正确：${JSON.stringify(previewState)}`);
     }
 
+    await waitFor(
+      window,
+      "Number.isFinite(document.querySelector('.compact-generation-result audio')?.duration) && document.querySelector('.compact-generation-result audio')?.duration > 0",
+      "试听音频元数据",
+    );
+    const keyboardSeekChecked = await window.webContents
+      .executeJavaScript(`(() => {
+      const slider = document.querySelector('.compact-audio-progress');
+      const audio = document.querySelector('.compact-generation-result audio');
+      if (!(slider instanceof HTMLButtonElement) || !(audio instanceof HTMLAudioElement)) return false;
+      slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+      const atEnd = Math.abs(audio.currentTime - audio.duration) < 0.1;
+      slider.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+      const atStart = audio.currentTime === 0;
+      const rect = slider.getBoundingClientRect();
+      slider.dispatchEvent(new MouseEvent('click', { detail: 1, clientX: rect.left + rect.width / 2, bubbles: true }));
+      return atEnd && atStart && Math.abs(audio.currentTime - audio.duration / 2) < 0.1;
+    })()`);
+    if (!keyboardSeekChecked) throw new Error("播放器键盘与点击定位失败");
+    await window.webContents.executeJavaScript(
+      "document.querySelector('.compact-generation-result .player-button').click()",
+      true,
+    );
+    await waitFor(
+      window,
+      "document.querySelector('.compact-generation-result audio')?.paused === false",
+      "播放试听音频",
+    );
+    await window.webContents.executeJavaScript(
+      "document.querySelector('.compact-generation-result .player-button').click()",
+      true,
+    );
+    await waitFor(
+      window,
+      "document.querySelector('.compact-generation-result audio')?.paused === true",
+      "暂停试听音频",
+    );
+
     const textLimitChecked = await window.webContents
       .executeJavaScript(`(() => {
       const field = document.querySelector('#script-text');
@@ -1166,6 +1218,20 @@ void app
       "document.querySelectorAll('.dialogue-line-editor').length === 2 && document.body.innerText.includes('2 个角色，可以继续修改和分配声音') && document.querySelector('#dialogue-script-input')?.value === '小林：我们出发吧。\\n阿宁：好，现在就走。'",
       "应用多人对话智能整理结果",
     );
+    await window.webContents.executeJavaScript(
+      "document.querySelector('button[aria-label=\"删除第 1 句\"]').click()",
+    );
+    await waitFor(
+      window,
+      "document.querySelectorAll('.dialogue-line-editor').length === 1",
+      "删除一条对话",
+    );
+    await clickByText(window, "撤销删除");
+    await waitFor(
+      window,
+      "document.querySelectorAll('.dialogue-line-editor').length === 2 && document.body.innerText.includes('小林')",
+      "撤销后保留对话角色与顺序",
+    );
 
     const dynamicLayoutFailures = [];
     await clickByText(window, "试听 30 字");
@@ -1272,6 +1338,20 @@ void app
       "document.querySelectorAll('.subtitle-segment').length === 2",
       "删除一句",
     );
+    await clickByText(window, "撤销删除");
+    await waitFor(
+      window,
+      "document.querySelectorAll('.subtitle-segment').length === 3 && document.querySelector('textarea[aria-label=\"第 1 句\"]').value === '自动化修改后的第一句。'",
+      "撤销删除不覆盖其他句子的编辑",
+    );
+    await window.webContents.executeJavaScript(
+      "document.querySelector('button[aria-label=\"删除第 3 句\"]').click()",
+    );
+    await waitFor(
+      window,
+      "document.querySelectorAll('.subtitle-segment').length === 2",
+      "撤销后可以再次删除",
+    );
     const subtitleNamed = await window.webContents.executeJavaScript(`(() => {
       const field = document.querySelector('.project-title-field input');
       if (!(field instanceof HTMLInputElement)) return false;
@@ -1309,6 +1389,27 @@ void app
     );
 
     await load(window, "/projects", "capture=records&state=ready");
+    await waitFor(
+      window,
+      "document.querySelectorAll('.history-audio-row audio').length >= 2",
+      "准备多条试听录音",
+    );
+    await window.webContents.executeJavaScript(
+      `(async () => {
+      const audio = [...document.querySelectorAll('.history-audio-row audio')];
+      await audio[0].play();
+      await audio[1].play();
+    })()`,
+      true,
+    );
+    await waitFor(
+      window,
+      "document.querySelectorAll('.history-audio-row audio')[0].paused && !document.querySelectorAll('.history-audio-row audio')[1].paused",
+      "新试听自动停止上一条录音",
+    );
+    await window.webContents.executeJavaScript(
+      "document.querySelectorAll('audio').forEach(audio => audio.pause())",
+    );
     window.webContents.focus();
     const creationLauncherFocused = await window.webContents
       .executeJavaScript(`(() => {
@@ -1737,7 +1838,7 @@ void app
     await clickByText(window, "检查更新");
     await waitFor(
       window,
-      "document.body.innerText.includes('当前已是最新版本') && document.body.innerText.includes('最新版本 1.0.0')",
+      `document.body.innerText.includes('当前已是最新版本') && document.body.innerText.includes(${JSON.stringify(`最新版本 ${appVersion}`)})`,
       "检查更新结果",
     );
     await clickByText(window, "知道了");

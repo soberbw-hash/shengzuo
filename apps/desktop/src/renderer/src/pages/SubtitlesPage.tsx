@@ -6,6 +6,7 @@ import {
   Save,
   Trash2,
   Upload,
+  Undo2,
 } from "lucide-react";
 import {
   useCallback,
@@ -57,6 +58,7 @@ import { PageHeader } from "../components/PageHeader";
 import { SmartDialogueExtractor } from "../components/SmartDialogueExtractor";
 import { PerformanceControls } from "../components/PerformanceControls";
 import { SectionHeading } from "../components/SectionHeading";
+import { useDeletionRecovery } from "../hooks/useDeletionRecovery";
 import { getUserErrorMessage } from "../lib/errorMessage";
 import {
   clearCreationDraft,
@@ -117,6 +119,13 @@ export const SubtitlesPage = () => {
   const [pause, setPause] = useState(420);
   const [projectId, setProjectId] = useState("");
   const [projectTitle, setProjectTitle] = useState(createDefaultProjectTitle);
+  const deletionRecovery = useDeletionRecovery(
+    segments,
+    setSegments,
+    `${projectId}\0${sourceText}`,
+    MAX_SEGMENTS,
+  );
+  const clearDeletionHistory = deletionRecovery.clear;
   const [draggingDocument, setDraggingDocument] = useState(false);
   const [resumePrompt, setResumePrompt] = useState(false);
   const [draftHydrated, setDraftHydrated] = useState(false);
@@ -272,6 +281,7 @@ export const SubtitlesPage = () => {
   };
 
   const resetForNewProject = useCallback(() => {
+    clearDeletionHistory();
     setResumePrompt(false);
     setResumeDraft(null);
     clearCreationDraft("subtitles");
@@ -285,7 +295,7 @@ export const SubtitlesPage = () => {
     current.setPronunciationRules([]);
     current.setPresetId("longform");
     setDraftHydrated(true);
-  }, []);
+  }, [clearDeletionHistory]);
 
   const continueDraft = () => {
     if (!resumeDraft) return;
@@ -462,6 +472,7 @@ export const SubtitlesPage = () => {
     type: SubtitleDocumentType,
     importedName = "",
   ) => {
+    clearDeletionHistory();
     const parsed = parseSubtitleDocument(content, type);
     setSourceText(content);
     setSegments(toDrafts(parsed));
@@ -520,7 +531,7 @@ export const SubtitlesPage = () => {
   };
 
   const removeSegment = (id: string) => {
-    setSegments((current) => current.filter((segment) => segment.id !== id));
+    deletionRecovery.remove(id);
   };
 
   const saveProject = async (): Promise<GenerationProject | null> => {
@@ -806,6 +817,18 @@ export const SubtitlesPage = () => {
           <GlassCard tone="solid" padding="lg">
             <SectionHeading
               title="2. 逐句检查"
+              action={
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!deletionRecovery.canUndo}
+                  onClick={deletionRecovery.undo}
+                  title="恢复最近删除的一句，可连续撤销"
+                >
+                  <Undo2 className="h-3.5 w-3.5" />
+                  撤销删除
+                </Button>
+              }
               description={
                 validSegments.length > 0
                   ? `${validSegments.length} 句 · 可直接修改或删除，再统一生成。`

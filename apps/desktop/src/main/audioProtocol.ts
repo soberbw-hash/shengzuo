@@ -1,6 +1,6 @@
-import { pathToFileURL } from "node:url";
+import { protocol } from "electron";
 
-import { net, protocol } from "electron";
+import { audioFileResponse } from "./audioFileResponse";
 
 export const AUDIO_SCHEME = "shengzuo-audio";
 
@@ -26,8 +26,14 @@ export const handleAudioScheme = (
   ) => string | undefined | Promise<string | undefined>,
 ): (() => void) => {
   protocol.handle(AUDIO_SCHEME, async (request) => {
-    const url = new URL(request.url);
-    const identifier = decodeURIComponent(url.pathname.slice(1));
+    let url: URL;
+    let identifier: string;
+    try {
+      url = new URL(request.url);
+      identifier = decodeURIComponent(url.pathname.slice(1));
+    } catch {
+      return new Response(null, { status: 400 });
+    }
     if (!/^[a-zA-Z0-9-]{1,120}$/u.test(identifier)) {
       return new Response(null, { status: 400 });
     }
@@ -38,7 +44,12 @@ export const handleAudioScheme = (
           ? await resolveSamplePath(identifier)
           : undefined;
     if (!filePath) return new Response(null, { status: 404 });
-    return net.fetch(pathToFileURL(filePath).toString());
+    return audioFileResponse(
+      filePath,
+      request.method,
+      request.headers.get("Range"),
+      request.signal,
+    );
   });
   return () => protocol.unhandle(AUDIO_SCHEME);
 };

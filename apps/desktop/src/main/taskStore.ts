@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   isEnqueueTaskRequest,
   isVoiceId,
+  isModelId,
   type EnqueueTaskRequest,
   type GenerationTask,
 } from "@ai-voice-studio/shared-types";
@@ -19,13 +20,20 @@ const isStoredTask = (value: unknown): value is StoredGenerationTask => {
   return (
     isVoiceId(task.id) &&
     typeof task.title === "string" &&
-    typeof task.kind === "string" &&
-    typeof task.modelId === "string" &&
-    typeof task.status === "string" &&
+    ["single", "subtitles", "dialogue"].includes(task.kind ?? "") &&
+    isModelId(task.modelId) &&
+    ["queued", "running", "completed", "failed", "canceled"].includes(
+      task.status ?? "",
+    ) &&
     typeof task.progress === "number" &&
+    Number.isFinite(task.progress) &&
     typeof task.message === "string" &&
     typeof task.currentSegment === "number" &&
+    Number.isInteger(task.currentSegment) &&
+    task.currentSegment >= 0 &&
     typeof task.totalSegments === "number" &&
+    Number.isInteger(task.totalSegments) &&
+    task.totalSegments >= 1 &&
     typeof task.createdAt === "string" &&
     typeof task.updatedAt === "string" &&
     (task.errorCode === undefined || typeof task.errorCode === "string") &&
@@ -62,6 +70,6 @@ export class TaskStore {
 
   async save(tasks: StoredGenerationTask[]): Promise<void> {
     await mkdir(path.dirname(this.filePath), { recursive: true });
-    await writeResilientJson(this.filePath, tasks.slice(0, 100));
+    await writeResilientJson(this.filePath, tasks);
   }
 }
