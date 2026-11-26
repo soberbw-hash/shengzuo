@@ -19,6 +19,7 @@ void test("mixed product names and digits retain normal checks without narrow op
 
 import {
   assessGeneratedAudio,
+  narrationTempoFactors,
   estimateSpokenUnits,
   estimateVisibleCharacters,
   FrozenQualityBaselineTracker,
@@ -487,4 +488,29 @@ void test("detects pace drift against earlier chunks", () => {
     0.22,
   );
   assert.ok(result.issues.includes("语速明显变快"));
+});
+
+void test("steady narration eases opposite pace deviations within a single voice and preserves headings and warnings", () => {
+  const sample = (
+    secondsPerUnit: number,
+    baselineKey = "voice-a",
+    text = "这是一段用来检查跨句语速变化的中文旁白。",
+    issues: string[] = [],
+  ) => ({
+    baselineKey,
+    request: { text },
+    assessment: { secondsPerUnit, issues, critical: false, score: 0 },
+  });
+  const factors = narrationTempoFactors([
+    sample(0.26),
+    sample(0.2),
+    sample(0.17),
+    sample(0.21),
+    sample(0.32, "voice-b"),
+    sample(0.32, "voice-a", "七、结尾"),
+    sample(0.32, "voice-a", "这条录音已有其他质量异常需要保留提醒。", [
+      "语速异常",
+    ]),
+  ]);
+  assert.deepEqual(factors, [1.1, 1, 0.9, 1, 1, 1, 1]);
 });

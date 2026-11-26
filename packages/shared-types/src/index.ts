@@ -1,5 +1,5 @@
 export const APP_NAME = "声作";
-export const APP_VERSION = "1.0.1";
+export const APP_VERSION = "1.0.2";
 export const APP_DESCRIPTOR = "本地声音创作工作台";
 export const APP_TAGLINE = "让自己的声音，成为作品。";
 

@@ -62,6 +62,7 @@ import {
   isAssessmentBetter,
   shouldUseVoxLongForm,
   shouldUseStrictPaceCalibration,
+  narrationTempoFactors,
   type FrozenQualityBaseline,
   type GeneratedAudioAssessment,
   type GeneratedAudioMetrics,
@@ -1920,6 +1921,9 @@ class ModelEngine {
         jobId,
         request.pauseMs,
         pausesMs,
+        request.presetId === "longform"
+          ? narrationTempoFactors(completedStates)
+          : undefined,
       );
       this.generationAbort?.signal.throwIfAborted();
       const result: AudioResult = {
@@ -2334,6 +2338,7 @@ class ModelEngine {
     resultId: string,
     pauseMs: number,
     pausesMs?: number[],
+    tempoFactors?: number[],
   ): Promise<number> {
     const requestPath = path.join(this.outputRoot, `${resultId}.merge.json`);
     const value = {
@@ -2342,6 +2347,7 @@ class ModelEngine {
       output: path.join(this.outputRoot, `${resultId}.mp3`),
       pauseMs,
       pausesMs,
+      tempoFactors,
       edgeFadeMs: 12,
     };
     await writeFile(requestPath, JSON.stringify(value), "utf8");

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 from pathlib import Path
 
@@ -28,9 +29,14 @@ def main() -> None:
     output = Path(str(payload["output"])).resolve()
     pause_ms = int(payload["pauseMs"])
     pauses_ms = [int(value) for value in payload.get("pausesMs", [])]
+    tempo_factors = payload.get("tempoFactors", [1.0] * len(inputs))
     edge_fade_ms = int(payload.get("edgeFadeMs", 0))
     if (
         not inputs
+        or not isinstance(tempo_factors, list)
+        or len(tempo_factors) != len(inputs)
+        or any(type(value) not in (float, int) or not math.isfinite(value)
+               or not 0.9 <= value <= 1.1 for value in tempo_factors)
         or len(inputs) > 200
         or pause_ms < 0
         or pause_ms > 5000
@@ -50,6 +56,8 @@ def main() -> None:
     labels: list[str] = []
     for index in range(len(inputs)):
         label = f"a{index}"
+        factor = tempo_factors[index]
+        tempo_filter = f",atempo={factor:.6f}" if factor != 1 else ""
         fade_filter = ""
         if edge_fade_ms > 0:
             fade_seconds = edge_fade_ms / 1000
@@ -59,7 +67,7 @@ def main() -> None:
             )
         filters.append(
             f"[{index}:a]aresample=44100,"
-            f"aformat=sample_fmts=fltp:channel_layouts=mono{fade_filter}[{label}]"
+            f"aformat=sample_fmts=fltp:channel_layouts=mono{tempo_filter}{fade_filter}[{label}]"
         )
         labels.append(f"[{label}]")
         segment_pause_ms = (

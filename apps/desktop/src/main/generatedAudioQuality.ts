@@ -391,3 +391,46 @@ export const assessGeneratedAudio = (
         : undefined,
   };
 };
+
+interface NarrationPaceSample {
+  baselineKey: string;
+  request: { text: string };
+  assessment: GeneratedAudioAssessment;
+}
+
+// Work on the finished take so the opening and ending use the same reference.
+// Leave short headings, uncertain unit counts and flagged recordings untouched.
+export const narrationTempoFactors = (
+  samples: readonly NarrationPaceSample[],
+): number[] => {
+  const groups = new Map<string, number[]>();
+  const paces = samples.map(({ baselineKey, request, assessment }) => {
+    const pace = assessment.secondsPerUnit;
+    const han = request.text.match(/\p{Script=Han}/gu)?.length ?? 0;
+    if (
+      !pace ||
+      !Number.isFinite(pace) ||
+      pace < 0.1 ||
+      pace > 0.42 ||
+      assessment.critical ||
+      assessment.issues.length ||
+      han < 12 ||
+      han < estimateSpokenUnits(request.text) * 0.65
+    )
+      return undefined;
+    const group = groups.get(baselineKey) ?? [];
+    group.push(pace);
+    groups.set(baselineKey, group);
+    return pace;
+  });
+  return samples.map(({ baselineKey }, index) => {
+    const group = groups.get(baselineKey);
+    const pace = paces[index];
+    if (!group || group.length < 3 || !pace) return 1;
+    const ratio = pace / median(group)!;
+    // Leave natural variation alone. Ease in continuously and bound the stretch.
+    if (ratio < 0.94) return Math.max(0.9, ratio / 0.94);
+    if (ratio > 1.06) return Math.min(1.1, ratio / 1.06);
+    return 1;
+  });
+};
