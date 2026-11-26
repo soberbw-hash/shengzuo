@@ -9,6 +9,7 @@ export const MODEL_CATALOG = [
     name: "VoxCPM2",
     purpose: "描述造声、声音克隆、旁白",
     summary: "既能克隆，也能只靠描述创造新声音。",
+    taskLabel: "日常配音",
     badge: "首选",
     rating: 5,
     ratingLabel: "综合最推荐",
@@ -26,6 +27,7 @@ export const MODEL_CATALOG = [
     name: "Fun-CosyVoice3 0.5B 2512",
     purpose: "方言配音、地方口音",
     summary: "想说方言，就用这个。",
+    taskLabel: "方言口播",
     badge: "方言多",
     rating: 4.5,
     ratingLabel: "方言创作首选",
@@ -43,6 +45,7 @@ export const MODEL_CATALOG = [
     name: "IndexTTS-2.5",
     purpose: "情绪旁白、角色台词",
     summary: "想要更细腻的语气，就用这个。",
+    taskLabel: "角色情绪",
     badge: "情绪强",
     rating: 4.8,
     ratingLabel: "表现力推荐",
@@ -363,6 +366,12 @@ export const getGenerationPreset = (presetId?: GenerationPresetId) =>
   GENERATION_PRESETS.find((preset) => preset.id === (presetId ?? "natural")) ??
   (presetId === "expressive" ? GENERATION_PRESETS[1] : GENERATION_PRESETS[0]);
 
+export const resolveModelLanguage = (
+  modelId: ModelId,
+  language: Language,
+): Language =>
+  MODEL_LANGUAGE_SUPPORT[modelId].includes(language) ? language : "auto";
+
 export const normalizeGenerationControls = ({
   modelId,
   language,
@@ -380,7 +389,10 @@ export const normalizeGenerationControls = ({
   expression: string;
   presetId: GenerationPresetId;
 } => {
-  const capabilities = getModelGenerationCapabilities(modelId, language);
+  const capabilities = getModelGenerationCapabilities(
+    modelId,
+    resolveModelLanguage(modelId, language),
+  );
   return {
     emotion: capabilities.emotion ? emotion : "自然",
     expression: capabilities.expression ? expression.trim() : "自然、清晰",

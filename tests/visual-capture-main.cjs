@@ -48,10 +48,6 @@ const standardScenarios = [
     query: "capture=interaction&state=ready",
     width: 1600,
     height: 900,
-    fillInput: {
-      selector: ".project-title-field--header input",
-      text: "声作产品介绍",
-    },
     fillTextArea: {
       id: "script-text",
       text: "欢迎使用声作。这是一款把声音克隆、长稿配音和多人对话放在同一个工作台里的本地创作工具。选择声音和模型，先试听一小段，满意后再生成完整音频。所有录音、文稿和结果默认保存在自己的电脑里。",
@@ -85,6 +81,7 @@ const standardScenarios = [
   },
   {
     name: "02a-pronunciation-dictionary",
+    advanced: true,
     route: "/",
     query: "capture=interaction&state=ready",
     width: 1280,
@@ -94,6 +91,7 @@ const standardScenarios = [
   },
   {
     name: "02c-smart-text",
+    advanced: true,
     route: "/",
     query: "capture=interaction&state=ready",
     width: 1280,
@@ -108,6 +106,7 @@ const standardScenarios = [
   },
   {
     name: "02ca-smart-text-applied",
+    advanced: true,
     route: "/",
     query: "capture=interaction&state=ready",
     width: 1280,
@@ -123,6 +122,7 @@ const standardScenarios = [
   },
   {
     name: "02e-dialogue-extraction",
+    advanced: true,
     route: "/",
     query: "capture=interaction&state=ready",
     width: 1280,
@@ -136,6 +136,7 @@ const standardScenarios = [
   },
   {
     name: "02f-language-menu",
+    advanced: true,
     route: "/",
     query: "capture=language-menu&state=ready",
     width: 1280,
@@ -156,6 +157,7 @@ const standardScenarios = [
   },
   {
     name: "02d-api-missing",
+    advanced: true,
     route: "/",
     query: "capture=interaction&state=ready&api=missing",
     width: 1280,
@@ -178,6 +180,7 @@ const standardScenarios = [
   },
   {
     name: "02h-vox-voice-design",
+    advanced: true,
     route: "/",
     query: "state=ready",
     width: 1280,
@@ -498,6 +501,12 @@ void app
         hash: scenario.route,
       });
       await delay(700);
+      if (scenario.advanced) {
+        await window.webContents.executeJavaScript(
+          "document.querySelector('.page-header-actions button[aria-expanded=false]')?.click()",
+        );
+        await delay(120);
+      }
       if (scenario.closeExistingModals) {
         for (let attempt = 0; attempt < 4; attempt += 1) {
           const closed = await window.webContents.executeJavaScript(`(() => {

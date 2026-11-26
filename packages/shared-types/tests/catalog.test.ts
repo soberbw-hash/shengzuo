@@ -19,6 +19,7 @@ import {
   getModelGenerationCapabilities,
   getSmartScriptDestination,
   normalizeGenerationControls,
+  resolveModelLanguage,
   isRenameVoiceProfileRequest,
   isRemoveVoiceSampleRequest,
   isSaveProjectRequest,
@@ -180,6 +181,16 @@ void test("voice source modes stay locked to models that really support them", (
     "controlled",
   ]);
   assert.deepEqual(MODEL_VOICE_MODE_SUPPORT["indextts2-5"], ["controlled"]);
+});
+
+void test("language selection follows the active model across drafts and queues", () => {
+  assert.equal(
+    resolveModelLanguage("fun-cosyvoice3-0.5b", "dialect-sichuan"),
+    "dialect-sichuan",
+  );
+  assert.equal(resolveModelLanguage("indextts2-5", "dialect-sichuan"), "auto");
+  assert.equal(resolveModelLanguage("voxcpm2", "he"), "he");
+  assert.equal(resolveModelLanguage("fun-cosyvoice3-0.5b", "he"), "auto");
 });
 
 void test("unsupported generation controls are normalized before reaching a worker", () => {

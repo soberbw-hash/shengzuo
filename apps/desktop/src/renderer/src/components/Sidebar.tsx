@@ -44,25 +44,41 @@ const RouteLink = ({
 export const Sidebar = () => (
   <aside className="sidebar">
     <nav className="space-y-1" aria-label="主导航">
-      <div className="nav-section-label">创作</div>
+      <div className="nav-section-label">常用</div>
       <div className="space-y-1">
         {primaryRoutes
-          .filter((route) => route.area === "create")
+          .filter((route) => route.id === "generate" || route.id === "voices")
+          .map((route) => (
+            <RouteLink
+              key={route.path}
+              route={
+                route.id === "generate"
+                  ? { ...route, label: "生成语音" }
+                  : { ...route, label: "克隆与管理声音" }
+              }
+            />
+          ))}
+      </div>
+
+      <div className="nav-section-label">更多创作</div>
+      <div className="space-y-1">
+        {primaryRoutes
+          .filter(
+            (route) => route.id === "subtitles" || route.id === "dialogue",
+          )
+          .map((route) => (
+            <RouteLink key={route.path} route={route} />
+          ))}
+      </div>
+      <div className="nav-section-label">管理</div>
+      <div className="space-y-1">
+        {primaryRoutes
+          .filter((route) => route.id === "projects")
           .map((route) => (
             <RouteLink key={route.path} route={route} />
           ))}
       </div>
 
-      <div className="nav-section-label">内容</div>
-      <div className="space-y-1">
-        {primaryRoutes
-          .filter((route) => route.area === "library")
-          .map((route) => (
-            <RouteLink key={route.path} route={route} />
-          ))}
-      </div>
-
-      <div className="nav-section-label">模型</div>
       <div className="space-y-1">
         {toolRoutes.map((route) => (
           <RouteLink key={route.path} route={route} />

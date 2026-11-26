@@ -32,7 +32,6 @@ import {
 import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
-  MODEL_LANGUAGE_SUPPORT,
   countMeaningfulCharacters,
   takeMeaningfulPrefix,
   type BatchGenerationRequest,
@@ -900,20 +899,19 @@ export const SubtitlesPage = () => {
             <div className="subtitle-settings__grid">
               <SelectField
                 label="本地模型"
+                title={
+                  MODEL_CATALOG.find(
+                    (model) => model.id === store.selectedModel,
+                  )?.name
+                }
                 value={store.selectedModel}
-                onChange={(event) => {
-                  const modelId = event.target.value as ModelId;
-                  store.setSelectedModel(modelId);
-                  if (
-                    !MODEL_LANGUAGE_SUPPORT[modelId].includes(store.language)
-                  ) {
-                    store.setLanguage("auto");
-                  }
-                }}
+                onChange={(event) =>
+                  store.setSelectedModel(event.target.value as ModelId)
+                }
               >
                 {MODEL_CATALOG.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
+                  <option key={model.id} value={model.id} title={model.name}>
+                    {model.taskLabel}
                   </option>
                 ))}
               </SelectField>

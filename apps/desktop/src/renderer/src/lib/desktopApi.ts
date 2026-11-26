@@ -530,7 +530,22 @@ const browserApi: DesktopApi = {
           ],
         },
       }),
-    create: () => Promise.reject(new Error("浏览器预览不能读取本地录音。")),
+    create: (request) =>
+      browserCaptureMode() === "interaction" &&
+      request.sampleToken.startsWith("preview-")
+        ? Promise.resolve({
+            id: "voice-preview-created",
+            name: request.name,
+            description: "",
+            kind: "cloned",
+            modelId: "voxcpm2",
+            model: "VoxCPM2",
+            color: "blue",
+            sampleName: "preview.wav",
+            hasReferenceText: Boolean(request.referenceText),
+            createdAt: new Date().toISOString(),
+          })
+        : Promise.reject(new Error("浏览器预览不能读取本地录音。")),
     rename: (request) =>
       Promise.resolve({
         id: request.voiceId,

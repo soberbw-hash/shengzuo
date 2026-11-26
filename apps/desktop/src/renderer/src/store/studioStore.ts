@@ -1,6 +1,9 @@
 import { create } from "zustand";
 
 import {
+  normalizeGenerationControls,
+  resolveModelLanguage,
+  getModelGenerationCapabilities,
   type AudioResult,
   type Emotion,
   type EngineSnapshot,
@@ -89,6 +92,19 @@ interface StudioState {
 const createToastId = (): string =>
   `toast-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
+const modelContext = (
+  state: StudioState,
+  modelId: ModelId,
+  requestedLanguage: Language,
+) => {
+  const language = resolveModelLanguage(modelId, requestedLanguage);
+  return {
+    language,
+    ...normalizeGenerationControls({ ...state, modelId, language }),
+    performanceSegments: [],
+  };
+};
+
 export const useStudioStore = create<StudioState>((set) => ({
   selectedModel: "voxcpm2",
   selectedVoice: "",
@@ -112,9 +128,9 @@ export const useStudioStore = create<StudioState>((set) => ({
   toasts: [],
   setSelectedModel: (selectedModel) =>
     set((state) => ({
+      ...modelContext(state, selectedModel, state.language),
       selectedModel,
       engine: state.engines[selectedModel] ?? null,
-      performanceSegments: [],
     })),
   setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
   setVoiceProfiles: (voiceProfiles) => set({ voiceProfiles }),
@@ -140,13 +156,37 @@ export const useStudioStore = create<StudioState>((set) => ({
       };
     }),
   setText: (text) => set({ text, performanceSegments: [] }),
-  setExpression: (expression) => set({ expression }),
-  setLanguage: (language) => set({ language, performanceSegments: [] }),
-  setEmotion: (emotion) => set({ emotion }),
+  setExpression: (expression) =>
+    set((state) => ({
+      expression: getModelGenerationCapabilities(
+        state.selectedModel,
+        state.language,
+      ).expression
+        ? expression
+        : "自然、清晰",
+    })),
+  setLanguage: (language) =>
+    set((state) => modelContext(state, state.selectedModel, language)),
+  setEmotion: (emotion) =>
+    set((state) => ({
+      emotion: getModelGenerationCapabilities(
+        state.selectedModel,
+        state.language,
+      ).emotion
+        ? emotion
+        : "自然",
+    })),
   setSpeed: (speed) => set({ speed }),
   setVolume: (volume) => set({ volume }),
   setFormat: (format) => set({ format }),
-  setPresetId: (presetId) => set({ presetId }),
+  setPresetId: (presetId) =>
+    set((state) => ({
+      presetId: normalizeGenerationControls({
+        ...state,
+        modelId: state.selectedModel,
+        presetId,
+      }).presetId,
+    })),
   setPronunciationRules: (pronunciationRules) => set({ pronunciationRules }),
   setPerformanceSegments: (performanceSegments) => set({ performanceSegments }),
   setEngine: (engine) =>

@@ -118,6 +118,24 @@ def encode_mp3(source: Path, destination: Path, speed: float, volume: float) -> 
     return source_duration / speed
 
 
+def prepare_cosy_reference(wav: Path, reference_text: str) -> str:
+    """CosyVoice's speech tokenizer accepts a maximum of 30 seconds."""
+    import soundfile as sf
+    from reference_audio import analyze_reference_windows, choose_stable_reference_window
+
+    duration = sf.info(wav).duration
+    if duration <= 30:
+        return reference_text
+    samples, rate = sf.read(wav, dtype="float32")
+    window = choose_stable_reference_window(duration, analyze_reference_windows(samples, rate, duration))
+    if window is None:
+        raise RuntimeError("VOICE_SAMPLE_QUALITY_LOW")
+    start = round(window.start_seconds * rate)
+    sf.write(wav, samples[start:start + round(window.duration_seconds * rate)], rate)
+    # A transcript of the full recording no longer matches this excerpt.
+    return ""
+
+
 class CosyVoiceBackend:
     def __init__(self, weights_root: Path, source_root: Path) -> None:
         self.weights_root = weights_root
@@ -162,6 +180,7 @@ class CosyVoiceBackend:
 
         if language not in SUPPORTED_LANGUAGES:
             raise RuntimeError("UNSUPPORTED_LANGUAGE")
+        reference_text = prepare_cosy_reference(reference_audio, reference_text)
         dialect = DIALECT_NAMES.get(language)
         custom_expression = expression.strip() not in {"", "自然", "自然、清晰"}
         if dialect or custom_expression:
@@ -181,7 +200,7 @@ class CosyVoiceBackend:
             )
         else:
             iterator = self.model.inference_cross_lingual(
-                text, str(reference_audio), stream=False, speed=1.0
+                "You are a helpful assistant.<|endofprompt|>" + text, str(reference_audio), stream=False, speed=1.0
             )
         parts = [
             item["tts_speech"].detach().float().cpu().numpy().reshape(-1)

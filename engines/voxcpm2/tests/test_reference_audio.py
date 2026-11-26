@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
-WORKER_ROOT = Path(__file__).resolve().parents[1] / "worker"
+WORKER_ROOT = Path(__file__).resolve().parents[2] / "common" / "worker"
 sys.path.insert(0, str(WORKER_ROOT))
 
 from reference_audio import (  # noqa: E402
@@ -42,6 +43,24 @@ class ReferenceAudioTests(unittest.TestCase):
         )
         self.assertIsNone(reference_duration_error(30.0, ultimate=True))
         self.assertIsNone(reference_duration_error(59.8, ultimate=False))
+
+
+class CosyReferenceTests(unittest.TestCase):
+    def test_long_recording_uses_short_audio_without_full_transcript(self) -> None:
+        import numpy as np
+        import soundfile as sf
+        from server_core import prepare_cosy_reference
+
+        rate = 16000
+        with tempfile.TemporaryDirectory() as directory:
+            wav = Path(directory) / "reference.wav"
+            samples = np.sin(2 * np.pi * 220 * np.arange(31 * rate) / rate) * 0.1
+            sf.write(wav, samples, rate)
+            self.assertEqual(prepare_cosy_reference(wav, "full transcript"), "")
+            self.assertAlmostEqual(sf.info(wav).duration, 10)
+            original = wav.read_bytes()
+            self.assertEqual(prepare_cosy_reference(wav, "matching text"), "matching text")
+            self.assertEqual(wav.read_bytes(), original)
 
 
 if __name__ == "__main__":

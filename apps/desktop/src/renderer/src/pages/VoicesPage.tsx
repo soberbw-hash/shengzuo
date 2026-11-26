@@ -47,6 +47,8 @@ export const VoicesPage = () => {
   const store = useStudioStore();
   const location = useLocation();
   const navigate = useNavigate();
+  const returnSearch = (location.state as { singleSearch?: string } | null)
+    ?.singleSearch;
   const [cloneOpen, setCloneOpen] = useState(false);
   const [voiceName, setVoiceName] = useState(createDefaultVoiceName);
   const [sampleName, setSampleName] = useState("");
@@ -125,7 +127,9 @@ export const VoicesPage = () => {
 
   const closeClone = () => {
     setCloneOpen(false);
-    if (location.search) void navigate("/voices", { replace: true });
+    if (typeof returnSearch === "string")
+      void navigate({ pathname: "/", search: returnSearch }, { replace: true });
+    else if (location.search) void navigate("/voices", { replace: true });
   };
 
   const applySampleSelection = (selection: VoiceSampleSelection) => {
@@ -179,7 +183,14 @@ export const VoicesPage = () => {
       setSampleQuality(null);
       setReferenceText("");
       setVoiceName(createDefaultVoiceName());
-      closeClone();
+      if (typeof returnSearch === "string") {
+        const query = new URLSearchParams(returnSearch);
+        query.set("voice", voice.id);
+        void navigate(
+          { pathname: "/", search: query.toString() },
+          { replace: true },
+        );
+      } else closeClone();
       store.pushToast({
         title: "声音已创建",
         description: "可以直接开始配音。",
@@ -501,7 +512,12 @@ export const VoicesPage = () => {
                   fullWidth
                   onClick={() => {
                     store.setSelectedVoice(voice.id);
-                    void navigate("/");
+                    void navigate({
+                      pathname: "/",
+                      search: new URLSearchParams({
+                        voice: voice.id,
+                      }).toString(),
+                    });
                   }}
                 >
                   {store.selectedVoice === voice.id

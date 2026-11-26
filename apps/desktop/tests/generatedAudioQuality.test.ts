@@ -514,3 +514,20 @@ void test("steady narration eases opposite pace deviations within a single voice
   ]);
   assert.deepEqual(factors, [1.1, 1, 0.9, 1, 1, 1, 1]);
 });
+void test("a five-character heading at 1.5x excludes edge silence when checking slowness", () => {
+  const result = assessGeneratedAudio(
+    {
+      ...healthy,
+      durationSeconds: 1.056,
+      leadingSilenceSeconds: 0.094,
+      trailingSilenceSeconds: 0.131,
+    },
+    "六、其他更新",
+    "careful",
+    0.189,
+    undefined,
+    1.5,
+    "voxcpm2",
+  );
+  assert.deepEqual(result.issues, []);
+});

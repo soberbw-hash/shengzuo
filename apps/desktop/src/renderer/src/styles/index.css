@@ -242,10 +242,15 @@ a,
 }
 
 .nav-item:hover {
-  transform: translateX(1px);
   border-color: rgba(201, 217, 234, 0.64);
   background: rgba(255, 255, 255, 0.55);
   color: #31445c;
+}
+
+.nav-item:focus-visible,
+.inline-action-link:focus-visible {
+  outline: 2px solid var(--avs-blue, #438fe9);
+  outline-offset: 2px;
 }
 
 .nav-item--active {
@@ -1137,6 +1142,14 @@ select.field-control {
 
 .generate-script-input {
   min-height: 210px;
+}
+
+.generate-page[data-advanced="false"] .generate-script-input,
+.generate-page[data-advanced="false"] .performance-annotated-text {
+  height: clamp(150px, calc(100dvh - 618px), 490px);
+  min-height: 0;
+  line-height: 1.7;
+  scrollbar-gutter: stable;
 }
 
 .script-view-controls,
@@ -2576,8 +2589,8 @@ select.field-control {
 .preview-scope mark {
   min-width: 0;
   flex: 1;
-  background: #fff1a8;
-  color: #3b5269;
+  background: transparent;
+  color: #31566a;
   line-height: 1.45;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -5947,6 +5960,11 @@ select.field-control {
 
   .generate-page .voice-design-presets button {
     padding: 2px 7px;
+  }
+
+  .generate-page[data-advanced="false"] .generate-script-input,
+  .generate-page[data-advanced="false"] .performance-annotated-text {
+    height: clamp(150px, calc(100dvh - 550px), 210px);
   }
 
   .generate-page .generate-script-input {

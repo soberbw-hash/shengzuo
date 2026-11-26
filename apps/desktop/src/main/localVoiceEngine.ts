@@ -37,6 +37,7 @@ import {
   MODEL_CATALOG,
   getModelGenerationCapabilities,
   normalizeGenerationControls,
+  resolveModelLanguage,
   type AudioResult,
   type BatchGenerationRequest,
   type DownloadSource,
@@ -1196,6 +1197,7 @@ class ModelEngine {
   private async generateSingle(request: GenerationRequest): Promise<void> {
     request = {
       ...request,
+      language: resolveModelLanguage(request.modelId, request.language),
       ...normalizeGenerationControls(request),
     };
     const errors = validateGenerationRequest(request);
@@ -1453,6 +1455,7 @@ class ModelEngine {
     });
     request = {
       ...request,
+      language: resolveModelLanguage(request.modelId, request.language),
       emotion: normalizedDefaults.emotion,
       presetId: normalizedDefaults.presetId,
       voxMode,
@@ -2589,6 +2592,10 @@ export class LocalVoiceEngine {
             ...request,
             request: {
               ...request.request,
+              language: resolveModelLanguage(
+                request.request.modelId,
+                request.request.language,
+              ),
               ...controls,
               requestId: id,
               projectId: request.projectId ?? request.request.projectId,
@@ -2598,6 +2605,10 @@ export class LocalVoiceEngine {
             ...request,
             request: {
               ...request.request,
+              language: resolveModelLanguage(
+                request.request.modelId,
+                request.request.language,
+              ),
               emotion: controls.emotion,
               presetId: controls.presetId,
               segments: request.request.segments.map((segment) => ({

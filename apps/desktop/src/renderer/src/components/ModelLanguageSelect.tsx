@@ -1,4 +1,4 @@
-import { Check, ChevronDown, LockKeyhole } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -31,11 +31,6 @@ const groupLabels = {
   more: "其他外语",
 } as const;
 
-const requiredModelFor = (language: Language) =>
-  MODEL_CATALOG.find((model) =>
-    MODEL_LANGUAGE_SUPPORT[model.id].includes(language),
-  );
-
 interface MenuPosition {
   left: number;
   maxHeight: number;
@@ -56,9 +51,11 @@ export const ModelLanguageSelect = ({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
+  const options = LANGUAGE_OPTIONS.filter((language) =>
+    MODEL_LANGUAGE_SUPPORT[modelId].includes(language.id),
+  );
   const selected =
-    LANGUAGE_OPTIONS.find((language) => language.id === value) ??
-    LANGUAGE_OPTIONS[0];
+    options.find((language) => language.id === value) ?? LANGUAGE_OPTIONS[0];
 
   const updateMenuPosition = useCallback(() => {
     const trigger = triggerRef.current;
@@ -153,59 +150,39 @@ export const ModelLanguageSelect = ({
                 >
                   {MODEL_CATALOG.find((model) => model.id === modelId)?.name}
                 </strong>
-                <span>没锁可直接用 · 有锁需切换模型</span>
+                <span>支持的语言与方言</span>
               </div>
-              {(Object.keys(groupLabels) as (keyof typeof groupLabels)[]).map(
-                (group) => (
+              {(Object.keys(groupLabels) as (keyof typeof groupLabels)[])
+                .filter((group) =>
+                  options.some((language) => language.group === group),
+                )
+                .map((group) => (
                   <div className="model-language-select__group" key={group}>
                     <p>{groupLabels[group]}</p>
-                    {LANGUAGE_OPTIONS.filter(
-                      (language) => language.group === group,
-                    ).map((language) => {
-                      const supported = MODEL_LANGUAGE_SUPPORT[
-                        modelId
-                      ].includes(language.id);
-                      const requiredModel = requiredModelFor(language.id);
-                      const requirement = requiredModel
-                        ? `需要切换到 ${requiredModel.name} 模型`
-                        : "当前模型暂不支持";
-                      return (
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={language.id === value}
-                          aria-disabled={!supported}
-                          data-supported={supported}
-                          className="model-language-select__option"
-                          key={language.id}
-                          onClick={() => {
-                            if (!supported) return;
-                            onChange(language.id);
-                            setOpen(false);
-                          }}
-                        >
-                          <span>{language.label}</span>
-                          {supported ? (
-                            language.id === value ? (
+                    {options
+                      .filter((language) => language.group === group)
+                      .map((language) => {
+                        return (
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={language.id === value}
+                            className="model-language-select__option"
+                            key={language.id}
+                            onClick={() => {
+                              onChange(language.id);
+                              setOpen(false);
+                            }}
+                          >
+                            <span>{language.label}</span>
+                            {language.id === value && (
                               <Check className="h-4 w-4" aria-hidden="true" />
-                            ) : null
-                          ) : (
-                            <span
-                              className="model-language-select__lock"
-                              aria-label={requirement}
-                            >
-                              <LockKeyhole className="h-3.5 w-3.5" />
-                              <span className="model-language-select__requirement">
-                                {requirement}
-                              </span>
-                            </span>
-                          )}
-                        </button>
-                      );
-                    })}
+                            )}
+                          </button>
+                        );
+                      })}
                   </div>
-                ),
-              )}
+                ))}
             </div>,
             document.body,
           )

@@ -33,7 +33,6 @@ import {
   EMOTION_OPTIONS,
   getModelGenerationCapabilities,
   MODEL_CATALOG,
-  MODEL_LANGUAGE_SUPPORT,
   takeMeaningfulPrefix,
   type BatchGenerationRequest,
   type Emotion,
@@ -1007,18 +1006,18 @@ export const DialoguePage = () => {
           <div className="dialogue-global-controls">
             <SelectField
               label="本地模型"
+              title={
+                MODEL_CATALOG.find((model) => model.id === store.selectedModel)
+                  ?.name
+              }
               value={store.selectedModel}
-              onChange={(event) => {
-                const modelId = event.target.value as ModelId;
-                store.setSelectedModel(modelId);
-                if (!MODEL_LANGUAGE_SUPPORT[modelId].includes(store.language)) {
-                  store.setLanguage("auto");
-                }
-              }}
+              onChange={(event) =>
+                store.setSelectedModel(event.target.value as ModelId)
+              }
             >
               {MODEL_CATALOG.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name}
+                <option key={model.id} value={model.id} title={model.name}>
+                  {model.taskLabel}
                 </option>
               ))}
             </SelectField>

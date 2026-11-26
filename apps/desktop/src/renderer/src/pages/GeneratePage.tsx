@@ -28,7 +28,6 @@ import {
 import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
-  MODEL_LANGUAGE_SUPPORT,
   MODEL_VOICE_MODE_SUPPORT,
   SINGLE_GENERATION_TEXT_LIMITS,
   VOX_VOICE_MODES,
@@ -76,6 +75,12 @@ import {
 import { isUltimateReferenceTooLong } from "../lib/referenceAudioGuidance";
 import { useStudioStore } from "../store/studioStore";
 
+const designPresets = [
+  "年轻女声，温柔清澈，带轻微笑意",
+  "沉稳男声，温暖可靠，语速自然",
+  "活力青年，明亮自然，节奏轻快",
+] as const;
+
 const createInitialSnapshot = (): EngineSnapshot => ({
   status: "not-installed",
   modelId: "voxcpm2",
@@ -88,8 +93,10 @@ export const GeneratePage = () => {
   const store = useStudioStore();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const requestedVoice = searchParams.get("voice");
   const [projectId, setProjectId] = useState("");
   const [projectTitle, setProjectTitle] = useState(createDefaultProjectTitle);
+  const [advanced, setAdvanced] = useState(false);
   const [voxMode, setVoxMode] = useState<VoxVoiceMode>("controlled");
   const [voiceModeHint, setVoiceModeHint] = useState<VoxVoiceMode | null>(null);
   const [voiceDescription, setVoiceDescription] = useState("");
@@ -317,32 +324,34 @@ export const GeneratePage = () => {
     setDraftHydrated(true);
   }, []);
 
-  const applyDraft = useCallback((draft: SingleCreationDraft) => {
-    const current = useStudioStore.getState();
-    setResumeDraft(null);
-    setResumePrompt(false);
-    setProjectId(draft.projectId || "");
-    setProjectTitle(draft.title);
-    current.setSelectedModel(draft.modelId);
-    current.setLanguage(draft.language);
-    current.setEmotion(draft.emotion);
-    current.setExpression(draft.expression);
-    current.setSpeed(draft.speed);
-    current.setVolume(draft.volume);
-    current.setPresetId(draft.presetId);
-    setVoxMode(draft.voxMode ?? "controlled");
-    setVoiceDescription(draft.voiceDescription ?? "");
-    current.setPronunciationRules(draft.pronunciationRules);
-    current.setText(draft.text);
-    current.setPerformanceSegments(draft.performanceSegments);
-    if (
-      draft.selectedVoice &&
-      current.voiceProfiles.some((item) => item.id === draft.selectedVoice)
-    ) {
-      current.setSelectedVoice(draft.selectedVoice);
-    }
-    setDraftHydrated(true);
-  }, []);
+  const applyDraft = useCallback(
+    (draft: SingleCreationDraft) => {
+      const current = useStudioStore.getState();
+      setResumeDraft(null);
+      setResumePrompt(false);
+      setProjectId(draft.projectId || "");
+      setProjectTitle(draft.title);
+      current.setSelectedModel(draft.modelId);
+      current.setLanguage(draft.language);
+      current.setEmotion(draft.emotion);
+      current.setExpression(draft.expression);
+      current.setSpeed(draft.speed);
+      current.setVolume(draft.volume);
+      current.setPresetId(draft.presetId);
+      setVoxMode(
+        requestedVoice ? "controlled" : (draft.voxMode ?? "controlled"),
+      );
+      setVoiceDescription(draft.voiceDescription ?? "");
+      current.setPronunciationRules(draft.pronunciationRules);
+      current.setText(draft.text);
+      current.setPerformanceSegments(draft.performanceSegments);
+      const voiceId = requestedVoice ?? draft.selectedVoice;
+      if (current.voiceProfiles.some((item) => item.id === voiceId))
+        current.setSelectedVoice(voiceId);
+      setDraftHydrated(true);
+    },
+    [requestedVoice],
+  );
 
   const continueDraft = () => {
     if (!resumeDraft) {
@@ -370,14 +379,18 @@ export const GeneratePage = () => {
           ? current.results.find((item) => item.id === requestedResult)
           : undefined;
         current.setText(result?.sourceText ?? project.sourceText);
-        current.setExpression(result?.expression ?? project.expression);
         current.setSelectedModel(result?.modelId ?? project.modelId);
         current.setLanguage(result?.language ?? project.language);
+        current.setExpression(result?.expression ?? project.expression);
         current.setEmotion(result?.emotion ?? project.emotion);
         current.setSpeed(project.speed);
         current.setVolume(project.volume);
         current.setPresetId(result?.presetId ?? project.presetId ?? "natural");
-        setVoxMode(result?.voxMode ?? project.voxMode ?? "controlled");
+        setVoxMode(
+          requestedVoice
+            ? "controlled"
+            : (result?.voxMode ?? project.voxMode ?? "controlled"),
+        );
         setVoiceDescription(
           result?.voiceDescription ?? project.voiceDescription ?? "",
         );
@@ -393,7 +406,7 @@ export const GeneratePage = () => {
               }))
             : [],
         );
-        const voiceId = project.segments[0]?.voiceId;
+        const voiceId = requestedVoice ?? project.segments[0]?.voiceId;
         if (voiceId) current.setSelectedVoice(voiceId);
         setDraftHydrated(true);
       });
@@ -422,7 +435,7 @@ export const GeneratePage = () => {
     current.setPronunciationRules([]);
     setProjectTitle(createDefaultProjectTitle());
     setDraftHydrated(true);
-  }, [applyDraft, resetForNewProject, searchParams]);
+  }, [applyDraft, requestedVoice, resetForNewProject, searchParams]);
 
   useEffect(() => {
     if (!draftHydrated) return;
@@ -747,13 +760,6 @@ export const GeneratePage = () => {
     });
   };
 
-  const changeModel = (modelId: ModelId) => {
-    store.setSelectedModel(modelId);
-    if (!MODEL_LANGUAGE_SUPPORT[modelId].includes(store.language)) {
-      store.setLanguage("auto");
-    }
-  };
-
   const cancel = async () => {
     if (!snapshot.jobId) return;
     store.setEngine(
@@ -765,30 +771,41 @@ export const GeneratePage = () => {
   };
 
   return (
-    <div className="page-content generate-page">
+    <div className="page-content generate-page" data-advanced={advanced}>
       <PageHeader
-        title="单段配音"
-        description="一段文字使用一个声音，快速试听并生成音频。"
+        title="生成语音"
+        description="选一个声音，输入文字，就可以试听或生成。"
         actions={
           <div className="page-header-actions">
-            <label className="project-title-field project-title-field--compact project-title-field--header">
-              <span>项目名称</span>
-              <input
-                aria-label="项目名称"
-                value={projectTitle}
-                maxLength={120}
-                placeholder="输入项目名称"
-                onChange={(event) => setProjectTitle(event.target.value)}
-              />
-            </label>
             <Button
               variant="secondary"
-              disabled={!store.text.trim() || textTooLong}
-              onClick={() => void saveProject()}
+              aria-expanded={advanced}
+              onClick={() => setAdvanced(!advanced)}
             >
-              <Save className="h-4 w-4" />
-              {projectId ? "保存修改" : "保存项目"}
+              {advanced ? "收起设置" : "更多设置"}
             </Button>
+            {advanced && (
+              <label className="project-title-field project-title-field--compact project-title-field--header">
+                <span>项目名称</span>
+                <input
+                  aria-label="项目名称"
+                  value={projectTitle}
+                  maxLength={120}
+                  placeholder="输入项目名称"
+                  onChange={(event) => setProjectTitle(event.target.value)}
+                />
+              </label>
+            )}
+            {advanced && (
+              <Button
+                variant="secondary"
+                disabled={!store.text.trim() || textTooLong}
+                onClick={() => void saveProject()}
+              >
+                <Save className="h-4 w-4" />
+                {projectId ? "保存修改" : "保存项目"}
+              </Button>
+            )}
           </div>
         }
       />
@@ -799,99 +816,119 @@ export const GeneratePage = () => {
             <SectionHeading
               title="1. 准备声音"
               action={
-                <span
-                  className="voice-source-heading-action"
-                  aria-hidden={usesVoiceDesign || undefined}
-                >
-                  {usesVoiceDesign ? null : (
-                    <Link className="inline-action-link" to="/voices?clone=1">
+                <span className="voice-source-heading-action">
+                  {usesVoiceDesign && !advanced ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setVoxMode("controlled")}
+                    >
+                      换用录音
+                    </Button>
+                  ) : !advanced &&
+                    !selectedVoice &&
+                    supportedVoiceModes.includes("design") ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        setVoxMode("design");
+                        if (!voiceDescription.trim())
+                          setVoiceDescription(designPresets[1]);
+                      }}
+                    >
+                      用预设声音
+                    </Button>
+                  ) : !usesVoiceDesign && selectedVoice ? (
+                    <Link
+                      className="inline-action-link"
+                      to="/voices?clone=1"
+                      state={{ singleSearch: searchParams.toString() }}
+                    >
                       <Plus className="h-4 w-4" />
                       克隆声音
                     </Link>
-                  )}
+                  ) : null}
                 </span>
               }
             />
-            <div
-              className="vox-mode-picker"
-              role="tablist"
-              aria-label="声音来源"
-            >
-              {VOX_VOICE_MODES.map((mode) => {
-                const modelSupported = supportedVoiceModes.includes(mode.id);
-                const recordingBlocked =
-                  store.selectedModel === "voxcpm2" &&
-                  mode.id === "ultimate" &&
-                  ultimateReferenceTooLong;
-                const supported = modelSupported && !recordingBlocked;
-                const requiredModel = modelSupported
-                  ? undefined
-                  : MODEL_CATALOG.find((model) =>
-                      MODEL_VOICE_MODE_SUPPORT[model.id].includes(mode.id),
-                    );
-                const requirement = recordingBlocked
-                  ? "当前录音超过 30 秒；请换短录音或使用可控克隆"
-                  : requiredModel
-                    ? `当前模型不支持，需要切换到 ${requiredModel.name}`
-                    : "当前模型暂不支持";
-                return (
-                  <span
-                    key={mode.id}
-                    className="voice-mode-option"
-                    data-supported={supported}
-                    data-tooltip-open={voiceModeHint === mode.id}
-                    tabIndex={supported ? undefined : 0}
-                    aria-label={supported ? undefined : requirement}
-                    onMouseEnter={() => {
-                      if (!supported) setVoiceModeHint(mode.id);
-                    }}
-                    onMouseLeave={() => setVoiceModeHint(null)}
-                    onFocus={() => {
-                      if (!supported) setVoiceModeHint(mode.id);
-                    }}
-                    onBlur={() => setVoiceModeHint(null)}
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      disabled={!supported}
-                      aria-disabled={!supported}
-                      aria-selected={
-                        supported && displayedVoiceMode === mode.id
-                      }
-                      data-active={supported && displayedVoiceMode === mode.id}
-                      onClick={() => {
-                        if (supported) setVoxMode(mode.id);
+            {advanced && (
+              <div
+                className="vox-mode-picker"
+                role="tablist"
+                aria-label="声音来源"
+              >
+                {VOX_VOICE_MODES.filter((mode) =>
+                  supportedVoiceModes.includes(mode.id),
+                ).map((mode) => {
+                  const recordingBlocked =
+                    store.selectedModel === "voxcpm2" &&
+                    mode.id === "ultimate" &&
+                    ultimateReferenceTooLong;
+                  const supported = !recordingBlocked;
+                  const requirement =
+                    "当前录音超过 30 秒，请换短录音或使用可控克隆";
+                  return (
+                    <span
+                      key={mode.id}
+                      className="voice-mode-option"
+                      data-supported={supported}
+                      data-tooltip-open={voiceModeHint === mode.id}
+                      tabIndex={supported ? undefined : 0}
+                      aria-label={supported ? undefined : requirement}
+                      onMouseEnter={() => {
+                        if (!supported) setVoiceModeHint(mode.id);
                       }}
+                      onMouseLeave={() => setVoiceModeHint(null)}
+                      onFocus={() => {
+                        if (!supported) setVoiceModeHint(mode.id);
+                      }}
+                      onBlur={() => setVoiceModeHint(null)}
                     >
-                      <span className="voice-mode-option__title">
-                        <strong>{mode.label}</strong>
-                        {!supported ? (
-                          <LockKeyhole
-                            className="h-3.5 w-3.5"
-                            aria-hidden="true"
-                          />
-                        ) : null}
-                      </span>
-                      <span
-                        className="voice-mode-option__description"
-                        title={mode.description}
+                      <button
+                        type="button"
+                        role="tab"
+                        disabled={!supported}
+                        aria-disabled={!supported}
+                        aria-selected={
+                          supported && displayedVoiceMode === mode.id
+                        }
+                        data-active={
+                          supported && displayedVoiceMode === mode.id
+                        }
+                        onClick={() => {
+                          if (supported) setVoxMode(mode.id);
+                        }}
                       >
-                        {mode.description}
-                      </span>
-                    </button>
-                    {!supported ? (
-                      <span
-                        className="voice-mode-option__requirement"
-                        role="tooltip"
-                      >
-                        {requirement}
-                      </span>
-                    ) : null}
-                  </span>
-                );
-              })}
-            </div>
+                        <span className="voice-mode-option__title">
+                          <strong>{mode.label}</strong>
+                          {!supported ? (
+                            <LockKeyhole
+                              className="h-3.5 w-3.5"
+                              aria-hidden="true"
+                            />
+                          ) : null}
+                        </span>
+                        <span
+                          className="voice-mode-option__description"
+                          title={mode.description}
+                        >
+                          {mode.description}
+                        </span>
+                      </button>
+                      {!supported ? (
+                        <span
+                          className="voice-mode-option__requirement"
+                          role="tooltip"
+                        >
+                          {requirement}
+                        </span>
+                      ) : null}
+                    </span>
+                  );
+                })}
+              </div>
+            )}
             <div className="voice-source-stage">
               <div
                 className="voice-source-panel"
@@ -915,11 +952,7 @@ export const GeneratePage = () => {
                     />
                   </div>
                   <div className="voice-design-presets">
-                    {[
-                      "年轻女声，温柔清澈，带轻微笑意",
-                      "沉稳男声，温暖可靠，语速自然",
-                      "活力青年，明亮自然，节奏轻快",
-                    ].map((description) => (
+                    {designPresets.map((description) => (
                       <button
                         key={description}
                         type="button"
@@ -989,9 +1022,13 @@ export const GeneratePage = () => {
                       </SelectField>
                     </div>
                   ) : (
-                    <Link className="inline-action-link" to="/voices?clone=1">
+                    <Link
+                      className="inline-action-link"
+                      to="/voices?clone=1"
+                      state={{ singleSearch: searchParams.toString() }}
+                    >
                       <Plus className="h-4 w-4" />
-                      去克隆
+                      克隆声音
                     </Link>
                   )}
                 </div>
@@ -1016,7 +1053,7 @@ export const GeneratePage = () => {
                     <Upload className="h-3.5 w-3.5" />
                     导入文稿
                   </Button>
-                  {usesVoiceDesign ? null : (
+                  {!advanced || usesVoiceDesign ? null : (
                     <SmartTextAssistant
                       compact
                       text={store.text}
@@ -1029,21 +1066,23 @@ export const GeneratePage = () => {
                       }}
                     />
                   )}
-                  <SmartDialogueExtractor
-                    text={store.text}
-                    actionLabel={(result) =>
-                      getSmartScriptDestination(result) === "dialogue"
-                        ? "转到多人对话"
-                        : "转到长稿配音"
-                    }
-                    onResult={routeByDialogueExtraction}
-                    secondaryActionLabel={(result) =>
-                      getSmartScriptDestination(result) === "subtitles"
-                        ? "留在单段配音"
-                        : undefined
-                    }
-                    onSecondaryResult={applyDialogueExtractionToSingle}
-                  />
+                  {advanced && (
+                    <SmartDialogueExtractor
+                      text={store.text}
+                      actionLabel={(result) =>
+                        getSmartScriptDestination(result) === "dialogue"
+                          ? "转到多人对话"
+                          : "转到长稿配音"
+                      }
+                      onResult={routeByDialogueExtraction}
+                      secondaryActionLabel={(result) =>
+                        getSmartScriptDestination(result) === "subtitles"
+                          ? "留在单段配音"
+                          : undefined
+                      }
+                      onSecondaryResult={applyDialogueExtractionToSingle}
+                    />
+                  )}
                 </div>
               }
             />
@@ -1149,72 +1188,86 @@ export const GeneratePage = () => {
         <div className="generate-control-column space-y-5">
           <GlassCard tone="solid" padding="lg">
             <SectionHeading
-              title="3. 调整并生成"
-              description="先确认模型和表达，再试听或生成。"
+              title="3. 生成配音"
+              description={
+                MODEL_CATALOG.find((model) => model.id === store.selectedModel)
+                  ?.name
+              }
             />
             <div className="mt-4 space-y-4">
-              <section
-                className="model-settings-panel"
-                aria-labelledby="model-settings-title"
-              >
-                <strong
-                  className="model-settings-panel__title"
-                  id="model-settings-title"
+              {advanced && (
+                <section
+                  className="model-settings-panel"
+                  aria-labelledby="model-settings-title"
                 >
-                  模型与语言
-                </strong>
-                <div className="model-settings-panel__selects">
-                  <SelectField
-                    label="本地模型"
-                    value={store.selectedModel}
-                    onChange={(event) =>
-                      changeModel(event.target.value as ModelId)
-                    }
+                  <strong
+                    className="model-settings-panel__title"
+                    id="model-settings-title"
                   >
-                    {MODEL_CATALOG.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </SelectField>
-                  <ModelLanguageSelect
+                    模型与语言
+                  </strong>
+                  <div className="model-settings-panel__selects">
+                    <SelectField
+                      label="本地模型"
+                      title={
+                        MODEL_CATALOG.find(
+                          (model) => model.id === store.selectedModel,
+                        )?.name
+                      }
+                      value={store.selectedModel}
+                      onChange={(event) =>
+                        store.setSelectedModel(event.target.value as ModelId)
+                      }
+                    >
+                      {MODEL_CATALOG.map((model) => (
+                        <option
+                          key={model.id}
+                          value={model.id}
+                          title={model.name}
+                        >
+                          {model.taskLabel}
+                        </option>
+                      ))}
+                    </SelectField>
+                    <ModelLanguageSelect
+                      modelId={store.selectedModel}
+                      value={store.language}
+                      onChange={store.setLanguage}
+                    />
+                  </div>
+                  <GenerationAssistControls
                     modelId={store.selectedModel}
-                    value={store.language}
-                    onChange={store.setLanguage}
+                    language={store.language}
+                    presetId={store.presetId}
+                    rules={store.pronunciationRules}
+                    onPresetChange={store.setPresetId}
+                    onRulesChange={store.setPronunciationRules}
                   />
-                </div>
-                <GenerationAssistControls
-                  modelId={store.selectedModel}
-                  language={store.language}
-                  presetId={store.presetId}
-                  rules={store.pronunciationRules}
-                  onPresetChange={store.setPresetId}
-                  onRulesChange={store.setPronunciationRules}
-                />
-                <PerformanceControls
-                  compact
-                  modelId={store.selectedModel}
-                  language={store.language}
-                  emotion={store.emotion}
-                  expression={store.expression}
-                  expressionDisabledReason={expressionDisabledReason}
-                  onEmotionChange={store.setEmotion}
-                  onExpressionChange={store.setExpression}
-                />
-                <div className="model-settings-panel__bottom">
-                  <SliderField
-                    label="音量"
-                    valueLabel={`${store.volume}%`}
-                    min={0}
-                    max={150}
-                    step={5}
-                    value={store.volume}
-                    onChange={(event) =>
-                      store.setVolume(Number(event.target.value))
-                    }
+                  <PerformanceControls
+                    compact
+                    modelId={store.selectedModel}
+                    language={store.language}
+                    emotion={store.emotion}
+                    expression={store.expression}
+                    expressionDisabledReason={expressionDisabledReason}
+                    onEmotionChange={store.setEmotion}
+                    onExpressionChange={store.setExpression}
                   />
-                </div>
-              </section>
+                  <div className="model-settings-panel__bottom">
+                    <SliderField
+                      label="音量"
+                      valueLabel={`${store.volume}%`}
+                      min={0}
+                      max={150}
+                      step={5}
+                      value={store.volume}
+                      onChange={(event) =>
+                        store.setVolume(Number(event.target.value))
+                      }
+                    />
+                  </div>
+                </section>
+              )}
               <SliderField
                 label="语速"
                 valueLabel={`${store.speed.toFixed(2)}×`}

@@ -51,9 +51,8 @@ export const Button = ({
         fullWidth && "w-full",
         className,
       )}
-      whileHover={reduceMotion ? undefined : { y: -1 }}
       whileTap={reduceMotion ? undefined : { scale: 0.98 }}
-      transition={{ duration: 0.16 }}
+      transition={{ duration: 0.12, ease: [0.22, 1, 0.36, 1] }}
       {...props}
     >
       {children}

@@ -1,4 +1,3 @@
-import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef } from "react";
 import {
   HashRouter,
@@ -23,19 +22,9 @@ import { useStudioStore } from "./store/studioStore";
 
 const RoutedContent = () => {
   const location = useLocation();
-  const reduceMotion = useReducedMotion();
 
   return (
-    <motion.main
-      key={location.pathname}
-      className="main-scroll"
-      initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{
-        duration: reduceMotion ? 0 : 0.28,
-        ease: [0.22, 1, 0.36, 1],
-      }}
-    >
+    <main key={location.pathname} className="main-scroll">
       <div className="route-content">
         <Routes location={location}>
           {featureRegistry.map(({ path, component: Component }) => (
@@ -44,7 +33,7 @@ const RoutedContent = () => {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
-    </motion.main>
+    </main>
   );
 };
 
@@ -116,6 +105,11 @@ const AppBootstrap = () => {
             "stopped",
           ];
           const preferred =
+            snapshots.find(
+              (snapshot) =>
+                snapshot.modelId === "voxcpm2" &&
+                usableStatuses.includes(snapshot.status),
+            ) ??
             snapshots.find((snapshot) =>
               usableStatuses.includes(snapshot.status),
             ) ??

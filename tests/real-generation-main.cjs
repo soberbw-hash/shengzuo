@@ -26,6 +26,10 @@ const option = (name) => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : undefined;
 };
+const {
+  isEnqueueTaskRequest,
+  isProjectId,
+} = require("../packages/shared-types/src/index.ts");
 const integrationRoot = path.join(root, "artifacts", "integration");
 const artifactRoot = option("--reuse-artifacts")
   ? path.resolve(option("--reuse-artifacts"))
@@ -33,11 +37,11 @@ const artifactRoot = option("--reuse-artifacts")
       root,
       "artifacts",
       "integration",
-      `release-1.0.1-${randomUUID()}`,
+      `release-${require("../apps/desktop/package.json").version}-${randomUUID()}`,
     );
 assert.ok(
   artifactRoot.startsWith(integrationRoot + path.sep) &&
-    path.basename(artifactRoot).startsWith("release-1.0.1-"),
+    /^release-\d+\.\d+\.\d+-[a-f0-9-]+$/u.test(path.basename(artifactRoot)),
   "Test data must stay in the integration artifacts folder",
 );
 app.getAppPath = () => path.join(root, "apps", "desktop");
@@ -173,6 +177,34 @@ app
       await verifyAudioPlayback(result);
       reports.push({ test: "original-problem-script", result });
     }
+    if (args.includes("--model-checks")) {
+      for (const modelId of ["voxcpm2", "indextts2-5", "fun-cosyvoice3-0.5b"]) {
+        const command = {
+          type: "generate",
+          request: {
+            ...base,
+            requestId: randomUUID(),
+            modelId,
+            title: "模型能力回归",
+            text: "今天读一段简短的中文，检查声音和语速。",
+            language: "zh",
+            voiceId: modelId === "voxcpm2" ? "" : profile.id,
+            voxMode: modelId === "voxcpm2" ? "design" : undefined,
+            voiceDescription:
+              modelId === "voxcpm2"
+                ? "沉稳男声，温暖可靠，语速自然"
+                : undefined,
+            presetId: "natural",
+          },
+        };
+        assert.ok(isEnqueueTaskRequest(command));
+        const task = await engine.enqueueTask(command);
+        const result = await waitForTask(task.id);
+        assert.ok(result?.durationSeconds > 1);
+        await verifyAudioPlayback(result);
+        reports.push({ test: "model-check-" + modelId, result });
+      }
+    }
     if (args.includes("--xlsx")) {
       const document = await readImportedDocument(option("--xlsx"));
       const narrationColumn = Number(option("--column") || 5);
@@ -201,7 +233,8 @@ app
                 result.title === "用户完整长稿回归" && result.projectId,
             )?.projectId
           : undefined);
-      const projectId = previousProject ?? `project-real-${randomUUID()}`;
+      const projectId = previousProject ?? `project-${randomUUID()}`;
+      assert.ok(isProjectId(projectId), "Use a valid production project ID");
       const request = {
         ...base,
         title: "用户完整长稿回归",
@@ -216,11 +249,12 @@ app
           pauseAfterMs: index === 0 ? 900 : 300,
         })),
       };
-      const task = await engine.enqueueTask({
-        type: "generate-batch",
-        projectId,
-        request,
-      });
+      const command = { type: "generate-batch", projectId, request };
+      assert.ok(
+        isEnqueueTaskRequest(command),
+        "Workbook request must pass desktop IPC validation",
+      );
+      const task = await engine.enqueueTask(command);
       // Exercise canceling queued work without disturbing the active generation.
       const waiting = await engine.enqueueTask({
         type: "generate",
@@ -287,6 +321,20 @@ app
       assert.equal(
         await checksum(engine.getResultPath(result.id)),
         await checksum(engine.getResultPath(cachedResult.id)),
+      );
+      const { TaskStore } = require("../apps/desktop/src/main/taskStore.ts");
+      const restored = await new TaskStore(
+        path.join(artifactRoot, "workspace"),
+      ).load();
+      assert.ok(
+        restored.some(
+          (item) => item.id === task.id && item.status === "completed",
+        ),
+      );
+      assert.ok(
+        restored.some(
+          (item) => item.id === retry.id && item.status === "completed",
+        ),
       );
       reports.push({
         test: "full-workbook-and-cache",

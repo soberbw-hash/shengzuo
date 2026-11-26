@@ -42,7 +42,7 @@ const clickByText = async (window, text) => {
   if (!clicked) throw new Error(`没有找到可点击项：${text}`);
 };
 
-const load = async (window, route, query) => {
+const load = async (window, route, query, advanced = false) => {
   await window.loadFile(rendererFile, {
     query: Object.fromEntries(new URLSearchParams(query)),
     hash: route,
@@ -53,6 +53,7 @@ const load = async (window, route, query) => {
     route,
   );
   await delay(500);
+  if (advanced) await clickByText(window, "更多设置");
 };
 
 const inspectPageVerticalLayout = (window) =>
@@ -360,6 +361,19 @@ void app
         `1280×720 下创作页仍未完整显示：${JSON.stringify(compactLayout)}`,
       );
     }
+    await waitFor(
+      window,
+      "document.querySelector('#script-text')?.getBoundingClientRect().height >= 160 && [...document.links].some(link => link.hash.includes('/voices?clone=1')) && !document.querySelector('.model-settings-panel') && !document.querySelector('.vox-mode-picker') && !document.querySelector('.project-title-field')",
+      "首页只显示常用配音操作",
+    );
+    await clickByText(window, "用预设声音");
+    await waitFor(
+      window,
+      "document.querySelector('#voice-description')?.value.includes('沉稳男声') && !document.querySelector('.model-settings-panel')",
+      "没有录音也能直接使用预设声音",
+    );
+    await clickByText(window, "换用录音");
+    await clickByText(window, "更多设置");
     const indexSelected = await window.webContents.executeJavaScript(`(() => {
       const label = [...document.querySelectorAll('label')].find(
         (item) => item.querySelector('.field-label')?.textContent?.trim() === '本地模型',
@@ -416,7 +430,12 @@ void app
       );
     }
     window.setContentSize(1280, 800, false);
-    await load(window, "/", "capture=interaction&state=ready&api=missing");
+    await load(
+      window,
+      "/",
+      "capture=interaction&state=ready&api=missing",
+      true,
+    );
     const missingSmartApiState = await window.webContents
       .executeJavaScript(`(() => {
       const button = [...document.querySelectorAll('button')].find(
@@ -465,7 +484,7 @@ void app
     })()`);
     if (!missingDialogueApiState)
       throw new Error("未配置 API 时智能提取角色没有禁用或说明原因");
-    await load(window, "/", "capture=interaction&state=ready");
+    await load(window, "/", "capture=interaction&state=ready", true);
     const setGenerationModel = async (modelId) => {
       const changed = await window.webContents.executeJavaScript(`(() => {
         const label = [...document.querySelectorAll('label')].find(
@@ -498,6 +517,7 @@ void app
       layoutWindow,
       "/",
       "capture=interaction&state=ready&layout=vox-modes",
+      true,
     );
     const captureVoxModeLayout = async (modeLabel) => {
       await clickByText(layoutWindow, modeLabel);
@@ -602,7 +622,7 @@ void app
       const emotion = labels.find((item) => item.querySelector('.field-label')?.firstElementChild?.textContent?.trim() === '情绪');
       const expression = labels.find((item) => item.querySelector('.field-label')?.firstElementChild?.textContent?.trim() === '表达要求');
       return {
-        match: emotion?.querySelector('select')?.disabled === true && Boolean(emotion?.querySelector('.lucide-lock-keyhole')) && expression?.querySelector('select')?.disabled === false && !expression?.querySelector('.lucide-lock-keyhole'),
+        match: !emotion && expression?.querySelector('select')?.disabled === false && !expression?.querySelector('.lucide-lock-keyhole'),
         emotionDisabled: emotion?.querySelector('select')?.disabled,
         emotionLock: Boolean(emotion?.querySelector('.lucide-lock-keyhole')),
         expressionDisabled: expression?.querySelector('select')?.disabled,
@@ -613,7 +633,7 @@ void app
       };
     })()`);
     if (
-      !labels.includes("情绪") ||
+      labels.includes("情绪") ||
       !labels.includes("表达要求") ||
       !voxControls.match
     ) {
@@ -809,50 +829,24 @@ void app
     if (!customExpressionEntered) throw new Error("无法填写自定义表达");
     await setGenerationModel("fun-cosyvoice3-0.5b");
     labels = await performanceLabels();
-    const cosyControlsLocked = await window.webContents
+    const cosyControlsIsolated = await window.webContents
       .executeJavaScript(`(() => {
       const fields = [...document.querySelectorAll('.performance-controls select')];
-      return fields.length === 2 && fields[0].disabled && !fields[1].disabled && document.querySelectorAll('.performance-controls .lucide-lock-keyhole').length === 1;
+      return fields.length === 1 && !fields[0].disabled && document.querySelectorAll('.performance-controls .lucide-lock-keyhole').length === 0;
     })()`);
     if (
-      !labels.includes("情绪") ||
+      labels.includes("情绪") ||
       !labels.includes("表达要求") ||
-      !cosyControlsLocked
+      !cosyControlsIsolated
     ) {
       throw new Error(
         `CosyVoice 普通话能力控件不正确：${JSON.stringify(labels)}`,
       );
     }
-    const cosyVoiceModeState = await window.webContents
-      .executeJavaScript(`(() => {
-      const options = [...document.querySelectorAll('.voice-mode-option')];
-      const buttons = options.map((item) => item.querySelector('button'));
-      const locked = options.filter((item) => item.getAttribute('data-supported') === 'false');
-      locked[0]?.focus();
-      return {
-        optionCount: options.length,
-        buttonStates: buttons.map((button) => ({ disabled: button?.disabled, selected: button?.getAttribute('aria-selected') })),
-        lockedCount: locked.length,
-        lockIcons: locked.map((item) => Boolean(item.querySelector('.lucide-lock-keyhole'))),
-      };
-    })()`);
-    if (
-      cosyVoiceModeState.optionCount !== 3 ||
-      cosyVoiceModeState.buttonStates[0]?.disabled !== false ||
-      cosyVoiceModeState.buttonStates[0]?.selected !== "true" ||
-      cosyVoiceModeState.buttonStates[1]?.disabled !== true ||
-      cosyVoiceModeState.buttonStates[2]?.disabled !== true ||
-      cosyVoiceModeState.lockedCount !== 2 ||
-      !cosyVoiceModeState.lockIcons.every(Boolean)
-    ) {
-      throw new Error(
-        `CosyVoice 没有正确锁定极致克隆和描述造声：${JSON.stringify(cosyVoiceModeState)}`,
-      );
-    }
     await waitFor(
       window,
-      "[...document.querySelectorAll('.voice-mode-option__requirement')].some((item) => getComputedStyle(item).visibility === 'visible' && item.textContent?.includes('需要切换到 VoxCPM2'))",
-      "克隆方式锁定原因",
+      "document.querySelectorAll('.voice-mode-option').length === 1 && document.querySelector('.voice-mode-option button[aria-selected=true]')?.textContent.includes('可控克隆')",
+      "CosyVoice 只显示支持的声音模式",
     );
     const languageMenuOpened = await window.webContents
       .executeJavaScript(`(() => {
@@ -874,13 +868,8 @@ void app
       if (!(menu instanceof HTMLElement)) return false;
       const rect = menu.getBoundingClientRect();
       const options = [...menu.querySelectorAll('[role="option"]')];
-      const unavailable = options.filter((option) => option.getAttribute('aria-disabled') === 'true');
-      const locksMatchAvailability = options.every((option) => {
-        const locked = Boolean(option.querySelector('.model-language-select__lock'));
-        const supported = option.getAttribute('data-supported') === 'true';
-        return locked === !supported && (supported || option.textContent?.includes('需要切换到'));
-      });
-      return rect.top >= 8 && rect.left >= 8 && rect.right <= innerWidth - 8 && rect.bottom <= innerHeight - 8 && menu.scrollHeight > menu.clientHeight && unavailable.length > 0 && locksMatchAvailability && menu.textContent?.includes('没锁可直接用') && menu.textContent?.includes('有锁需切换模型');
+      return rect.top >= 8 && rect.left >= 8 && rect.right <= innerWidth - 8 && rect.bottom <= innerHeight - 8 && menu.scrollHeight > menu.clientHeight && options.length === 29 && !menu.textContent.includes('希伯来语') && options.every(option => !option.disabled && option.getAttribute('aria-disabled') !== 'true');
+
     })()`);
     if (!languageMenuFits)
       throw new Error("语言与方言菜单仍被窗口裁切或不能内部滚动");
@@ -901,13 +890,13 @@ void app
     );
     await setGenerationModel("indextts2-5");
     labels = await performanceLabels();
-    const indexVoiceModesLocked = await window.webContents.executeJavaScript(
-      `document.querySelectorAll('.voice-mode-option[data-supported="false"] .lucide-lock-keyhole').length === 2`,
+    const indexVoiceModesIsolated = await window.webContents.executeJavaScript(
+      `document.querySelectorAll('.voice-mode-option').length === 1 && document.querySelector('.voice-mode-option button[aria-selected=true]')?.textContent.includes('可控克隆') && document.querySelector('.model-language-select__trigger')?.textContent.includes('自动')`,
     );
     if (
       !labels.includes("情绪") ||
       !labels.includes("表达要求") ||
-      !indexVoiceModesLocked
+      !indexVoiceModesIsolated
     ) {
       throw new Error(`IndexTTS 能力控件不正确：${JSON.stringify(labels)}`);
     }
@@ -1040,7 +1029,7 @@ void app
       "location.hash === '#/dialogue' && document.querySelectorAll('.dialogue-line-editor').length === 2 && document.querySelector('#dialogue-script-input')?.value === '小林：我们出发吧。\\n阿宁：好，现在就走。'",
       "提取结果转入多人对话",
     );
-    await load(window, "/", "capture=interaction&state=ready");
+    await load(window, "/", "capture=interaction&state=ready", true);
     const previewPrepared = await window.webContents.executeJavaScript(`(() => {
       const field = document.querySelector('#script-text');
       if (!(field instanceof HTMLTextAreaElement)) return false;
@@ -1162,7 +1151,7 @@ void app
         `记录里的默认项目名没有包含日期和时间：${generatedProjectTitle}`,
       );
     }
-    await clickByText(window, "单段配音");
+    await clickByText(window, "生成语音");
     await waitFor(
       window,
       `location.hash === '#/' && document.querySelector('#script-text')?.value === ${JSON.stringify("大家好\n\n 我是 小林")} && !document.body.innerText.includes('继续上次项目')`,
@@ -1664,6 +1653,16 @@ void app
       "保存声音名称",
     );
     await assertTextLayoutIntegrity(window, "声音重命名提示");
+    await clickByText(window, "已选中，去配音");
+    await waitFor(
+      window,
+      "location.hash.startsWith('#/?voice=') && document.querySelector('#script-text')",
+      "使用选中的声音进入配音",
+    );
+    await window.webContents.executeJavaScript(
+      "(() => {const field=document.querySelector('#script-text'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(field, '保留这一段文稿'); field.dispatchEvent(new Event('input',{bubbles:true}));})()",
+    );
+    await delay(150);
     await clickByText(window, "克隆声音");
     const dropped = await window.webContents.executeJavaScript(`(() => {
       const target = document.querySelector('.clone-upload');
@@ -1679,6 +1678,12 @@ void app
       window,
       "document.body.innerText.includes('拖入的录音.wav') && document.body.innerText.includes('时长 8.0 秒') && document.querySelector('.sample-audio-preview audio')",
       "拖入录音、完成检查并显示试听播放器",
+    );
+    await clickByText(window, "创建声音");
+    await waitFor(
+      window,
+      "location.hash.includes('voice=voice-preview-created') && document.querySelector('#script-text')?.value === '保留这一段文稿' && document.querySelector('select[aria-label=更换声音]')?.value === 'voice-preview-created'",
+      "从配音页克隆后自动回到原稿",
     );
 
     window.setContentSize(1280, 720, false);

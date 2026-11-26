@@ -319,7 +319,24 @@ export const assessGeneratedAudio = (
       Number.isFinite(baselineSecondsPerUnit) &&
       baselineSecondsPerUnit > 0
     ) {
-      const ratio = secondsPerUnit / baselineSecondsPerUnit;
+      // A quarter second of edge silence matters for a five-character heading.
+      // Only discount it when judging slowness; silence has its own checks.
+      const edgeFraction = Math.min(
+        1,
+        Math.max(
+          0,
+          (metrics.leadingSilenceSeconds + metrics.trailingSilenceSeconds) /
+            metrics.durationSeconds,
+        ),
+      );
+      const comparisonPace =
+        shortStructuralHeading && secondsPerUnit > baselineSecondsPerUnit
+          ? Math.max(
+              baselineSecondsPerUnit,
+              secondsPerUnit * (1 - edgeFraction),
+            )
+          : secondsPerUnit;
+      const ratio = comparisonPace / baselineSecondsPerUnit;
       stabilityDeviation += Math.abs(Math.log(ratio));
       const fastRatio = shortStructuralHeading
         ? 0.65

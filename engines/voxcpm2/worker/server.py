@@ -31,6 +31,7 @@ from pacing import (
     seconds_per_unit,
     split_for_stable_pacing,
 )
+sys.path.insert(0, str(WORKER_ROOT.parents[1] / "common" / "worker"))
 from reference_audio import (
     analyze_reference_windows,
     choose_stable_reference_window,
