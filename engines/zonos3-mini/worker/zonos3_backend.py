@@ -51,8 +51,10 @@ class Zonos3Backend:
                 condition_values={"speaking_rate": 14.0 * speed},
                 max_new_frames=MAX_AUDIO_FRAMES, seed=seed,
             )
+            # The codec drops the trailing delay slots for the ten codebooks.
+            last_complete_frame = MAX_AUDIO_FRAMES - (self.model.config.lm["n_codebooks"] - 1)
             return (out.waveform.detach().cpu().numpy(), out.sampling_rate,
-                    len(out.codes) >= MAX_AUDIO_FRAMES - 1)
+                    len(out.codes) >= last_complete_frame)
 
         render_script(text, output, generate)
         return True
