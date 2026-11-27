@@ -505,7 +505,12 @@ export const ModelsPage = () => {
                       {snapshotUnavailable ? "状态未读到" : copy.label}
                     </StatusBadge>
                   </div>
-                  <ModelRating value={model.rating} label={model.ratingLabel} />
+                  {model.rating === null ? null : (
+                    <ModelRating
+                      value={model.rating}
+                      label={model.ratingLabel}
+                    />
+                  )}
                 </div>
                 <div className="model-card__actions">
                   <Button

@@ -92,7 +92,7 @@ void test("model catalog contains five engine profiles with distinct capabilitie
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.badge),
-    ["首选", "方言多", "情绪强", "新模型", "新模型"],
+    ["首选", "方言多", "情绪强", "录音克隆", "原生语速"],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => [model.rating, model.ratingLabel]),
@@ -100,8 +100,8 @@ void test("model catalog contains five engine profiles with distinct capabilitie
       [5, "综合最推荐"],
       [4.5, "方言创作首选"],
       [4.8, "表现力推荐"],
-      [4.5, "本地多语言克隆"],
-      [4.5, "多语言和语速控制"],
+      [null, "本地多语言克隆"],
+      [null, "多语言和语速控制"],
     ],
   );
   assert.deepEqual(
