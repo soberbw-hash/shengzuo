@@ -1,5 +1,5 @@
 export const APP_NAME = "声作";
-export const APP_VERSION = "1.0.2";
+export const APP_VERSION = "1.0.3";
 export const APP_DESCRIPTOR = "本地声音创作工作台";
 export const APP_TAGLINE = "让自己的声音，成为作品。";
 
@@ -58,6 +58,42 @@ export const MODEL_CATALOG = [
     suitable: true,
     available: true,
   },
+  {
+    id: "qwen3-tts",
+    name: "Qwen3-TTS 1.7B Base",
+    purpose: "普通话克隆、中英混读",
+    summary: "克隆参考录音。提供准确原文可帮助保持语气。",
+    taskLabel: "Qwen3-TTS",
+    badge: "新模型",
+    rating: 4.5,
+    ratingLabel: "本地多语言克隆",
+    version: "12Hz · 1.7B Base",
+    estimatedSize: "约 13 GB",
+    recommendedHardware: "NVIDIA 显卡，12GB 显存",
+    hardwareNote: "10 种语言",
+    license: "Apache License 2.0",
+    usageRestriction: null,
+    suitable: true,
+    available: true,
+  },
+  {
+    id: "zonos3-mini",
+    name: "ZONOS3-Mini",
+    purpose: "参考音克隆、连续配音",
+    summary: "根据参考录音克隆，直接在模型内控制语速。",
+    taskLabel: "ZONOS3-Mini",
+    badge: "新模型",
+    rating: 4.5,
+    ratingLabel: "多语言和语速控制",
+    version: "Mini · Transformers",
+    estimatedSize: "约 10 GB",
+    recommendedHardware: "NVIDIA 显卡，8GB 显存",
+    hardwareNote: "43 种语言",
+    license: "Apache License 2.0",
+    usageRestriction: null,
+    suitable: true,
+    available: true,
+  },
 ] as const;
 
 export type ModelId = (typeof MODEL_CATALOG)[number]["id"];
@@ -93,12 +129,22 @@ export const MODEL_VOICE_MODE_SUPPORT: Record<
   voxcpm2: ["controlled", "ultimate", "design"],
   "fun-cosyvoice3-0.5b": ["controlled"],
   "indextts2-5": ["controlled"],
+  "qwen3-tts": ["controlled"],
+  "zonos3-mini": ["controlled"],
 };
 
 export const SINGLE_GENERATION_TEXT_LIMITS: Record<ModelId, number> = {
   voxcpm2: 2_000,
   "fun-cosyvoice3-0.5b": 2_000,
   "indextts2-5": 2_000,
+  "qwen3-tts": 2_000,
+  "zonos3-mini": 2_000,
+};
+
+export const MODEL_SEGMENT_LIMIT_NOTE: Partial<Record<ModelId, string>> = {
+  "qwen3-tts": "本软件单次推理约 2 分钟，长稿会分段。参考录音原文选填。",
+  "zonos3-mini":
+    "本软件限制单次推理约 2 分钟，长稿会分段合成。克隆只使用参考录音。",
 };
 
 /** 防止损坏的持久化任务制造无限数量的重试种子。 */
@@ -182,6 +228,23 @@ export const LANGUAGE_OPTIONS = [
   { id: "th", label: "泰语", group: "more" },
   { id: "tr", label: "土耳其语", group: "more" },
   { id: "vi", label: "越南语", group: "more" },
+  { id: "cs", label: "捷克语", group: "more" },
+  { id: "sk", label: "斯洛伐克语", group: "more" },
+  { id: "hu", label: "匈牙利语", group: "more" },
+  { id: "ro", label: "罗马尼亚语", group: "more" },
+  { id: "bg", label: "保加利亚语", group: "more" },
+  { id: "uk", label: "乌克兰语", group: "more" },
+  { id: "ka", label: "格鲁吉亚语", group: "more" },
+  { id: "bn", label: "孟加拉语", group: "more" },
+  { id: "ta", label: "泰米尔语", group: "more" },
+  { id: "te", label: "泰卢固语", group: "more" },
+  { id: "mr", label: "马拉地语", group: "more" },
+  { id: "gu", label: "古吉拉特语", group: "more" },
+  { id: "kn", label: "卡纳达语", group: "more" },
+  { id: "ml", label: "马拉雅拉姆语", group: "more" },
+  { id: "pa", label: "旁遮普语", group: "more" },
+  { id: "or", label: "奥里亚语", group: "more" },
+  { id: "ur", label: "乌尔都语", group: "more" },
 ] as const;
 
 export type Language = (typeof LANGUAGE_OPTIONS)[number]["id"];
@@ -287,6 +350,65 @@ export const MODEL_LANGUAGE_SUPPORT: Record<ModelId, readonly Language[]> = {
     "ru",
   ],
   "indextts2-5": ["auto", "zh", "en", "ja", "es", "ar"],
+  "qwen3-tts": [
+    "auto",
+    "zh",
+    "en",
+    "ja",
+    "ko",
+    "de",
+    "fr",
+    "ru",
+    "pt",
+    "es",
+    "it",
+  ],
+  "zonos3-mini": [
+    "auto",
+    "zh",
+    "en",
+    "fr",
+    "es",
+    "de",
+    "it",
+    "pt",
+    "nl",
+    "el",
+    "sv",
+    "da",
+    "no",
+    "fi",
+    "pl",
+    "cs",
+    "sk",
+    "hu",
+    "ro",
+    "bg",
+    "ru",
+    "uk",
+    "tr",
+    "ar",
+    "he",
+    "ka",
+    "ja",
+    "ko",
+    "vi",
+    "id",
+    "ms",
+    "th",
+    "tl",
+    "hi",
+    "bn",
+    "ta",
+    "te",
+    "mr",
+    "gu",
+    "kn",
+    "ml",
+    "pa",
+    "or",
+    "ur",
+  ],
 };
 
 export type EngineStatus =
@@ -358,6 +480,16 @@ export const MODEL_GENERATION_CAPABILITIES: Record<
   "indextts2-5": {
     emotion: true,
     expression: "always",
+    presets: ["natural", "longform"],
+  },
+  "qwen3-tts": {
+    emotion: false,
+    expression: "none",
+    presets: ["natural", "longform"],
+  },
+  "zonos3-mini": {
+    emotion: false,
+    expression: "none",
     presets: ["natural", "longform"],
   },
 };

@@ -304,7 +304,7 @@ export const GenerationAssistControls = ({
       >
         <div className="pronunciation-rules">
           <div className="pronunciation-rules__compatibility">
-            改读和跳过由声作先处理，切换三款模型仍然有效。
+            改读和跳过由声作先处理，切换模型后仍然有效。
           </div>
           {draft.length ? (
             draft.map((rule, index) => (

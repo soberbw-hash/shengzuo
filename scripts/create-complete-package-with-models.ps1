@@ -13,11 +13,13 @@ $thinRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot "声作-完整�
 $targetRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot "声作-完整便携版-含三模型-$ReleaseDate"))
 $stagingRoot = [IO.Path]::GetFullPath((Join-Path $deliverablesRoot ".staging-声作-含三模型-$ReleaseDate"))
 $sourceRoot = [IO.Path]::GetFullPath($ModelLibraryRoot)
-$modelFolders = @('voxcpm2', 'fun-cosyvoice3', 'indextts2-5')
+$modelFolders = @('voxcpm2', 'fun-cosyvoice3', 'indextts2-5', 'qwen3-tts', 'zonos3-mini')
 $minimumAssetReceipts = @{
   'voxcpm2' = 1
   'fun-cosyvoice3' = 3
   'indextts2-5' = 2
+  'qwen3-tts' = 1
+  'zonos3-mini' = 1
 }
 
 foreach ($pathToCheck in @($thinRoot, $targetRoot, $stagingRoot)) {

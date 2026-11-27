@@ -1,0 +1,8 @@
+{
+  "id": "zonos3-mini",
+  "name": "ZONOS3-Mini",
+  "version": "mini-hf",
+  "workerProtocol": "1.0",
+  "license": "Apache-2.0",
+  "loopbackOnly": true
+}

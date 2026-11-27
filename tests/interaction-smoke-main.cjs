@@ -330,6 +330,24 @@ void app
 
     window.setContentSize(1280, 720, false);
     await assertCoreRoutesFit(window);
+    for (const route of ["/", "/subtitles", "/dialogue"]) {
+      await load(window, route, "capture=interaction&state=ready");
+      const ready = await window.webContents.executeJavaScript(`(() => {
+        const field = document.querySelector('select[aria-label="本地模型"]');
+        if (!(field instanceof HTMLSelectElement) || field.options.length !== 5) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+        setter.call(field, 'zonos3-mini');
+        field.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
+      })()`);
+      if (!ready) throw new Error("生成页面没有提供完整模型切换");
+      await waitFor(
+        window,
+        "document.body.innerText.includes('约 2 分钟')",
+        "显示 ZONOS3 单次时长",
+      );
+    }
+
     await load(window, "/", "state=ready");
     const sidebarHidesDonate = await window.webContents.executeJavaScript(
       `(() => {
@@ -696,7 +714,7 @@ void app
     await clickByText(window, "发音词典");
     await waitFor(
       window,
-      "document.querySelector('[role=\"dialog\"][aria-label=\"发音词典\"]')?.textContent?.includes('切换三款模型仍然有效')",
+      "document.querySelector('[role=\"dialog\"][aria-label=\"发音词典\"]')?.textContent?.includes('切换模型后仍然有效')",
       "打开发音词典",
     );
     await clickByText(window, "添加规则");
@@ -1556,6 +1574,8 @@ void app
       "VoxCPM2",
       "Fun-CosyVoice3 0.5B 2512",
       "IndexTTS-2.5",
+      "Qwen3-TTS 1.7B Base",
+      "ZONOS3-Mini",
     ]) {
       const opened = await window.webContents.executeJavaScript(`(() => {
         const card = [...document.querySelectorAll('.model-card')].find(

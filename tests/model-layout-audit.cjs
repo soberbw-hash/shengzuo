@@ -20,7 +20,6 @@ const inspectModelCardsLayout = (window) =>
 
     const listRect = list.getBoundingClientRect();
     const maximumCardHeight = Math.min(440, innerHeight * 0.56);
-    const minimumBottomGap = Math.max(48, innerHeight * 0.12);
     const details = cards.map((card) => {
       const rect = card.getBoundingClientRect();
       const title = card.querySelector('h3')?.textContent?.trim() || '';
@@ -69,27 +68,33 @@ const inspectModelCardsLayout = (window) =>
     });
 
     const heights = details.map((card) => card.rect.height);
+    const rowHeightsMatch = details.every((card) =>
+      details.filter(other => Math.abs(card.rect.top - other.rect.top) <= tolerance)
+        .every(other => Math.abs(card.rect.height - other.rect.height) <= tolerance));
+    const requiredModels = ["VoxCPM2", "Fun-CosyVoice3 0.5B 2512", "IndexTTS-2.5", "Qwen3-TTS 1.7B Base", "ZONOS3-Mini"];
     const maximumHeight = Math.max(...heights);
     const minimumHeight = Math.min(...heights);
     const lowestBottom = Math.max(...details.map((card) => card.rect.bottom));
     const bottomGap = innerHeight - lowestBottom;
     const checks = {
-      exactlyThreeCards: cards.length === 3,
+      completeCatalog: cards.length === requiredModels.length && requiredModels.every(name => details.some(card => card.title === name)),
       listFitsViewport:
         listRect.left >= -tolerance &&
         listRect.right <= innerWidth + tolerance &&
         listRect.top >= -tolerance &&
         listRect.bottom <= innerHeight + tolerance,
-      cardsFitViewport: details.every(
+      allCardsReachableInsideList:
+        list.scrollWidth <= list.clientWidth + tolerance &&
+        (lowestBottom <= listRect.bottom + tolerance || getComputedStyle(list).overflowY === 'auto') &&
+        details.every(
         (card) =>
           card.rect.left >= -tolerance &&
           card.rect.right <= innerWidth + tolerance &&
-          card.rect.top >= -tolerance &&
-          card.rect.bottom <= innerHeight + tolerance,
+          card.rect.top >= listRect.top - tolerance &&
+          card.rect.bottom <= listRect.top + list.scrollHeight + tolerance,
       ),
-      cardsHaveEqualHeight: maximumHeight - minimumHeight <= tolerance,
+      cardsHaveEqualHeightWithinRow: rowHeightsMatch,
       cardsStayCompact: maximumHeight <= maximumCardHeight + tolerance,
-      cardsDoNotReachViewportBottom: bottomGap >= minimumBottomGap - tolerance,
       contentComplete: details.every(
         (card) =>
           Boolean(card.title) &&
@@ -104,7 +109,7 @@ const inspectModelCardsLayout = (window) =>
       ready: Object.values(checks).every(Boolean),
       checks,
       viewport: { width: innerWidth, height: innerHeight },
-      limits: { maximumCardHeight, minimumBottomGap },
+      limits: { maximumCardHeight },
       measurements: {
         cardCount: cards.length,
         maximumHeight,

@@ -49,17 +49,17 @@ class CosyReferenceTests(unittest.TestCase):
     def test_long_recording_uses_short_audio_without_full_transcript(self) -> None:
         import numpy as np
         import soundfile as sf
-        from server_core import prepare_cosy_reference
+        from server_core import shorten_reference_for_clone
 
         rate = 16000
         with tempfile.TemporaryDirectory() as directory:
             wav = Path(directory) / "reference.wav"
             samples = np.sin(2 * np.pi * 220 * np.arange(31 * rate) / rate) * 0.1
             sf.write(wav, samples, rate)
-            self.assertEqual(prepare_cosy_reference(wav, "full transcript"), "")
+            self.assertEqual(shorten_reference_for_clone(wav, "full transcript"), "")
             self.assertAlmostEqual(sf.info(wav).duration, 10)
             original = wav.read_bytes()
-            self.assertEqual(prepare_cosy_reference(wav, "matching text"), "matching text")
+            self.assertEqual(shorten_reference_for_clone(wav, "matching text"), "matching text")
             self.assertEqual(wav.read_bytes(), original)
 
 

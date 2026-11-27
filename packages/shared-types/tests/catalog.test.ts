@@ -69,18 +69,30 @@ void test("export naming template renders a safe predictable file name", () => {
   assert.equal(isExportNamingTemplate("{项目}_{"), false);
 });
 
-void test("model catalog contains three distinct recommended choices", () => {
+void test("model catalog contains five engine profiles with distinct capabilities", () => {
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.name),
-    ["VoxCPM2", "Fun-CosyVoice3 0.5B 2512", "IndexTTS-2.5"],
+    [
+      "VoxCPM2",
+      "Fun-CosyVoice3 0.5B 2512",
+      "IndexTTS-2.5",
+      "Qwen3-TTS 1.7B Base",
+      "ZONOS3-Mini",
+    ],
   );
   assert.deepEqual(
     MODEL_CATALOG.filter((model) => model.available).map((model) => model.id),
-    ["voxcpm2", "fun-cosyvoice3-0.5b", "indextts2-5"],
+    [
+      "voxcpm2",
+      "fun-cosyvoice3-0.5b",
+      "indextts2-5",
+      "qwen3-tts",
+      "zonos3-mini",
+    ],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.badge),
-    ["首选", "方言多", "情绪强"],
+    ["首选", "方言多", "情绪强", "新模型", "新模型"],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => [model.rating, model.ratingLabel]),
@@ -88,11 +100,13 @@ void test("model catalog contains three distinct recommended choices", () => {
       [5, "综合最推荐"],
       [4.5, "方言创作首选"],
       [4.8, "表现力推荐"],
+      [4.5, "本地多语言克隆"],
+      [4.5, "多语言和语速控制"],
     ],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.usageRestriction),
-    [null, null, "仅限非商业"],
+    [null, null, "仅限非商业", null, null],
   );
 });
 
@@ -118,6 +132,12 @@ void test("each model exposes only its documented language choices", () => {
   assert.ok(MODEL_LANGUAGE_SUPPORT["fun-cosyvoice3-0.5b"].includes("yue"));
   assert.ok(MODEL_LANGUAGE_SUPPORT.voxcpm2.includes("he"));
   assert.equal(MODEL_LANGUAGE_SUPPORT.voxcpm2.length, 40);
+  assert.equal(MODEL_LANGUAGE_SUPPORT["qwen3-tts"].length, 11);
+  assert.equal(MODEL_LANGUAGE_SUPPORT["zonos3-mini"].length, 44);
+  assert.equal(
+    getModelGenerationCapabilities("zonos3-mini", "zh").expression,
+    false,
+  );
   assert.equal(MODEL_LANGUAGE_SUPPORT["fun-cosyvoice3-0.5b"].length, 29);
   assert.deepEqual(MODEL_LANGUAGE_SUPPORT["indextts2-5"], [
     "auto",

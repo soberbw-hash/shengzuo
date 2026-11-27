@@ -135,7 +135,7 @@ interface PluginConfig {
   folder: string;
   dataFolder: string;
   name: string;
-  runtimeFlavor: "voxcpm" | "cosyvoice" | "indextts";
+  runtimeFlavor: "voxcpm" | "cosyvoice" | "indextts" | "qwen3" | "zonos3";
   assetDirectories: readonly string[];
   workerWeightsDirectory?: string;
   loadingMessage: string;
@@ -182,6 +182,28 @@ const pluginConfigs: readonly PluginConfig[] = [
     requiredBytes: 18 * 1024 ** 3,
     minimumCudaVramGb: 8,
   },
+  {
+    modelId: "qwen3-tts",
+    folder: "qwen3-tts",
+    dataFolder: "qwen3-tts",
+    name: "Qwen3-TTS 1.7B Base",
+    runtimeFlavor: "qwen3",
+    assetDirectories: ["weights/Qwen3-TTS-12Hz-1.7B-Base"],
+    loadingMessage: "正在加载 Qwen3-TTS 1.7B Base…",
+    requiredBytes: 13 * 1024 ** 3,
+    minimumCudaVramGb: 8,
+  },
+  {
+    modelId: "zonos3-mini",
+    folder: "zonos3-mini",
+    dataFolder: "zonos3-mini",
+    name: "ZONOS3-Mini",
+    runtimeFlavor: "zonos3",
+    assetDirectories: ["weights/ZONOS3-Mini-hf"],
+    loadingMessage: "正在加载 ZONOS3-Mini…",
+    requiredBytes: 10 * 1024 ** 3,
+    minimumCudaVramGb: 6,
+  },
 ] as const;
 
 const isProgressEvent = (value: unknown): value is ProgressEvent =>
@@ -220,6 +242,8 @@ const getFreeLoopbackPort = async (): Promise<number> =>
 
 const friendlyGenerationError = (code?: string): string => {
   switch (code) {
+    case "AUDIO_DURATION_LIMIT":
+      return "这一段超过了模型的单次时长，请在自然停顿处分成两段后再试。";
     case "VOICE_SAMPLE_DURATION":
       return "录音需要在 3 到 60 秒之间，请换一段更清晰的单人说话录音。";
     case "VOICE_SAMPLE_NOT_FOUND":
@@ -440,7 +464,8 @@ const safeChunkSize = (
   // Keeping the Main-side chunks at the same scale as the other engines avoids
   // creating a new prosody boundary every few words while retaining recovery
   // and cache checkpoints for genuinely long scripts.
-  if (modelId === "voxcpm2") return mode === "careful" ? 120 : 160;
+  if (modelId === "zonos3-mini") return 280;
+  if (modelId === "qwen3-tts") return 220;
   return mode === "careful" ? 120 : 160;
 };
 
@@ -2033,10 +2058,10 @@ class ModelEngine {
         referenceText: voice.referenceText,
         voxMode: request.voxMode,
         voiceDescription: request.voiceDescription,
+        generationSeed,
         ...(request.modelId === "voxcpm2"
           ? {
               longForm: Boolean(request.longForm),
-              generationSeed,
               ...(request.continuationAudioPath
                 ? { continuationAudio: request.continuationAudioPath }
                 : {}),

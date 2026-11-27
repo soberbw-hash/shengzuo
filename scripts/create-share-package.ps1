@@ -113,7 +113,7 @@ $portablePackage = [ordered]@{
 
 $portableEnginesRoot = Join-Path $appRoot 'engines'
 New-Item -ItemType Directory -Path $portableEnginesRoot -Force | Out-Null
-foreach ($engineName in @('common', 'voxcpm2', 'fun-cosyvoice3', 'indextts2-5')) {
+foreach ($engineName in @('common', 'voxcpm2', 'fun-cosyvoice3', 'indextts2-5', 'qwen3-tts', 'zonos3-mini')) {
   Copy-Item -LiteralPath (Join-Path $repositoryRoot "engines\$engineName") -Destination $portableEnginesRoot -Recurse -Force
 }
 

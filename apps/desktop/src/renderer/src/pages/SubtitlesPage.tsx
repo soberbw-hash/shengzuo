@@ -31,13 +31,11 @@ import {
 } from "@ai-voice-studio/audio-tools";
 import {
   ENGINE_STATUS_COPY,
-  MODEL_CATALOG,
   countMeaningfulCharacters,
   takeMeaningfulPrefix,
   type BatchGenerationRequest,
   type EngineSnapshot,
   type GenerationProject,
-  type ModelId,
   type SmartDialogueScriptResult,
 } from "@ai-voice-studio/shared-types";
 import {
@@ -52,6 +50,10 @@ import {
 import { AudioPlayer } from "../components/AudioPlayer";
 import { EngineStatusPanel } from "../components/EngineStatusPanel";
 import { GenerationAssistControls } from "../components/GenerationAssistControls";
+import {
+  GenerationModelSelect,
+  GenerationModelLimit,
+} from "../components/GenerationModelSelect";
 import { ModelLanguageSelect } from "../components/ModelLanguageSelect";
 import { PageHeader } from "../components/PageHeader";
 import { SmartDialogueExtractor } from "../components/SmartDialogueExtractor";
@@ -897,30 +899,17 @@ export const SubtitlesPage = () => {
           />
           <div className="subtitle-settings">
             <div className="subtitle-settings__grid">
-              <SelectField
-                label="本地模型"
-                title={
-                  MODEL_CATALOG.find(
-                    (model) => model.id === store.selectedModel,
-                  )?.name
-                }
-                value={store.selectedModel}
-                onChange={(event) =>
-                  store.setSelectedModel(event.target.value as ModelId)
-                }
-              >
-                {MODEL_CATALOG.map((model) => (
-                  <option key={model.id} value={model.id} title={model.name}>
-                    {model.taskLabel}
-                  </option>
-                ))}
-              </SelectField>
+              <GenerationModelSelect
+                modelId={store.selectedModel}
+                onChange={store.setSelectedModel}
+              />
               <ModelLanguageSelect
                 modelId={store.selectedModel}
                 value={store.language}
                 onChange={store.setLanguage}
               />
             </div>
+            <GenerationModelLimit modelId={store.selectedModel} />
             <GenerationAssistControls
               modelId={store.selectedModel}
               language={store.language}

@@ -1,0 +1,42 @@
+{
+  "models": [
+    {
+      "label": "ZONOS3-Mini-hf",
+      "directory": "ZONOS3-Mini-hf",
+      "repository": "Zyphra/ZONOS3-Mini-hf",
+      "revision": "e39d30df560125d9c434acd5cb0e83e4c2d64e0d",
+      "allowPatterns": [
+        "NOTICE",
+        "config.json",
+        "configuration_zonos3.py",
+        "licenses/ZONOS3-MIT.txt",
+        "licenses/antspeaker-Apache-2.0.txt",
+        "licenses/torchaudio-BSD-2-Clause.txt",
+        "licenses/transformers-Apache-2.0.txt",
+        "model.safetensors",
+        "modeling_zonos3.py",
+        "special_tokens_map.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "voices.json",
+        "voices.safetensors"
+      ],
+      "requiredSha256": {
+        "NOTICE": "00e2cd0e1d597742fa57f628ee61ff383835a692a17c8e5d471753283ea620c0",
+        "config.json": "8240d4ec52fa0403e1685c700df17e01d707888d962fcfa401edde0a62ac569b",
+        "configuration_zonos3.py": "a2f068eee6e4d4b85afdc219f3e74511026f5d804e5fb5d67223a7add656c0b0",
+        "licenses/ZONOS3-MIT.txt": "98216c34413fa17aeaaba8aeec41d157609b6b8f6c07cf6250239128cf616bb5",
+        "licenses/antspeaker-Apache-2.0.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "licenses/torchaudio-BSD-2-Clause.txt": "93a58861a858cc108e6b6b833e08e76e8b2a66339e4a8007c8a5a8c1ff9c40d6",
+        "licenses/transformers-Apache-2.0.txt": "77fd4710def9ec3c0f6225800e0235f15a425abd4a8b03559127fcd782612049",
+        "model.safetensors": "2d84a7b35c8e8bd4e962de84616285cf46ced398df016d7391f8cd2324985cb3",
+        "modeling_zonos3.py": "ef938e3338d3d379ec62cbf3fb5d7d9f3eca5413eac4038d881b342e94c9f812",
+        "special_tokens_map.json": "b500bca2c6aea722aed62e446af2a230c6a92c1d05f92a53a2a43f9a327b954b",
+        "tokenizer.json": "065373b77939d79e27d86300c7c9112da8dcd7f36bd949fa658a7550ffdbfed0",
+        "tokenizer_config.json": "69bcf7601b2687e22a4f5519e32c5f89550f176fe69fb489f3d51b9a73b20411",
+        "voices.json": "e38c9517b995a3ac952adaef462a18271cacd359448ed57d9a9a6ee22b1e8174",
+        "voices.safetensors": "da2377fb4c530dda80ae7aba71be99f032fa33377b447cbac706e376ce972c0b"
+      }
+    }
+  ]
+}

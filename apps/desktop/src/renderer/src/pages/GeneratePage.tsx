@@ -37,7 +37,6 @@ import {
   type GenerationProject,
   type GenerationRequest,
   type SmartDialogueScriptResult,
-  type ModelId,
   type VoxVoiceMode,
 } from "@ai-voice-studio/shared-types";
 import {
@@ -51,6 +50,10 @@ import {
 import { AudioPlayer } from "../components/AudioPlayer";
 import { EngineStatusPanel } from "../components/EngineStatusPanel";
 import { GenerationAssistControls } from "../components/GenerationAssistControls";
+import {
+  GenerationModelSelect,
+  GenerationModelLimit,
+} from "../components/GenerationModelSelect";
 import { ModelLanguageSelect } from "../components/ModelLanguageSelect";
 import { PageHeader } from "../components/PageHeader";
 import { PerformanceAnnotatedText } from "../components/PerformanceAnnotatedText";
@@ -1195,6 +1198,13 @@ export const GeneratePage = () => {
               }
             />
             <div className="mt-4 space-y-4">
+              <div className="generation-model-field">
+                <GenerationModelSelect
+                  modelId={store.selectedModel}
+                  onChange={store.setSelectedModel}
+                />
+                <GenerationModelLimit modelId={store.selectedModel} />
+              </div>
               {advanced && (
                 <section
                   className="model-settings-panel"
@@ -1204,31 +1214,9 @@ export const GeneratePage = () => {
                     className="model-settings-panel__title"
                     id="model-settings-title"
                   >
-                    模型与语言
+                    语言与表达
                   </strong>
                   <div className="model-settings-panel__selects">
-                    <SelectField
-                      label="本地模型"
-                      title={
-                        MODEL_CATALOG.find(
-                          (model) => model.id === store.selectedModel,
-                        )?.name
-                      }
-                      value={store.selectedModel}
-                      onChange={(event) =>
-                        store.setSelectedModel(event.target.value as ModelId)
-                      }
-                    >
-                      {MODEL_CATALOG.map((model) => (
-                        <option
-                          key={model.id}
-                          value={model.id}
-                          title={model.name}
-                        >
-                          {model.taskLabel}
-                        </option>
-                      ))}
-                    </SelectField>
                     <ModelLanguageSelect
                       modelId={store.selectedModel}
                       value={store.language}

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+from time import monotonic
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -118,8 +120,8 @@ def encode_mp3(source: Path, destination: Path, speed: float, volume: float) -> 
     return source_duration / speed
 
 
-def prepare_cosy_reference(wav: Path, reference_text: str) -> str:
-    """CosyVoice's speech tokenizer accepts a maximum of 30 seconds."""
+def shorten_reference_for_clone(wav: Path, reference_text: str) -> str:
+    """Keep a stable excerpt and discard the transcript when the reference is cropped."""
     import soundfile as sf
     from reference_audio import analyze_reference_windows, choose_stable_reference_window
 
@@ -180,7 +182,7 @@ class CosyVoiceBackend:
 
         if language not in SUPPORTED_LANGUAGES:
             raise RuntimeError("UNSUPPORTED_LANGUAGE")
-        reference_text = prepare_cosy_reference(reference_audio, reference_text)
+        reference_text = shorten_reference_for_clone(reference_audio, reference_text)
         dialect = DIALECT_NAMES.get(language)
         custom_expression = expression.strip() not in {"", "自然", "自然、清晰"}
         if dialect or custom_expression:
@@ -319,8 +321,11 @@ class WorkerState:
         voice_root: Path,
         output_root: Path,
         backend_name: str,
+        backend_factory: Callable[[Path, Path], Any] | None = None,
     ) -> None:
-        if backend_name == "indextts":
+        if backend_factory is not None:
+            self.backend = backend_factory(weights_root.resolve(), source_root.resolve())
+        elif backend_name == "indextts":
             self.backend = IndexTTSBackend(weights_root.resolve(), source_root.resolve())
         else:
             self.backend = CosyVoiceBackend(weights_root.resolve(), source_root.resolve())
@@ -361,7 +366,13 @@ class WorkerState:
                 normalized_reference = temporary / "reference.wav"
                 raw_output = temporary / "generated.wav"
                 normalize_reference(reference_audio, normalized_reference)
-                if isinstance(self.backend, IndexTTSBackend):
+                native_speed = False
+                if hasattr(self.backend, "render"):
+                    native_speed = self.backend.render(
+                        text, normalized_reference, reference_text, language, speed,
+                        int(payload.get("generationSeed", 3407)), raw_output
+                    )
+                elif isinstance(self.backend, IndexTTSBackend):
                     self.backend.generate_wav(
                         text, normalized_reference, reference_text, language,
                         expression, emotion, raw_output
@@ -373,7 +384,7 @@ class WorkerState:
                     )
                 if not raw_output.is_file():
                     raise RuntimeError("EMPTY_GENERATION")
-                duration = encode_mp3(raw_output, output_path, speed, volume)
+                duration = encode_mp3(raw_output, output_path, 1.0 if native_speed else speed, volume)
             return {
                 "fileName": output_path.name,
                 "durationSeconds": round(duration, 3),
@@ -388,6 +399,8 @@ class VoiceWorkerServer(ThreadingHTTPServer):
         super().__init__(address, VoiceWorkerHandler)
         self.state = state
         self.boot_token: str | None = boot_token
+        self.boot_expires = monotonic() + 60
+        self.handshake_lock = threading.Lock()
         self.session_token: str | None = None
 
 
@@ -454,25 +467,28 @@ class VoiceWorkerHandler(BaseHTTPRequestHandler):
             self.send_json(500, {"ok": False, "code": public_error_code(error)})
 
     def handle_handshake(self) -> None:
-        if not self.trusted_loopback_request() or self.server.boot_token is None:
-            self.send_json(401, {"ok": False, "code": "HANDSHAKE_REJECTED"})
-            return
-        if not secrets.compare_digest(
-            self.headers.get("Authorization", ""),
-            f"Bearer {self.server.boot_token}",
-        ):
+        if not self.trusted_loopback_request():
             self.send_json(401, {"ok": False, "code": "HANDSHAKE_REJECTED"})
             return
         self.read_payload()
-        self.server.boot_token = None
-        self.server.session_token = secrets.token_urlsafe(32)
-        self.send_json(
-            200,
-            {"ok": True, "sessionToken": self.server.session_token, "protocolVersion": "1.0"},
-        )
+        with self.server.handshake_lock:
+            token = self.server.boot_token
+            if (
+                token is None or monotonic() >= self.server.boot_expires
+                or not secrets.compare_digest(self.headers.get("Authorization", ""), f"Bearer {token}")
+            ):
+                self.send_json(401, {"ok": False, "code": "HANDSHAKE_REJECTED"})
+                return
+            self.server.boot_token = None
+            self.server.session_token = secrets.token_urlsafe(32)
+            response = {"ok": True, "sessionToken": self.server.session_token, "protocolVersion": "1.0"}
+        self.send_json(200, response)
 
 
-def main(default_backend: str | None = None) -> None:
+def main(
+    default_backend: str | None = None,
+    *, backend_factory: Callable[[Path, Path], Any] | None = None,
+) -> None:
     if default_backend not in {None, "cosyvoice", "indextts"}:
         raise RuntimeError("UNKNOWN_BACKEND")
     parser = argparse.ArgumentParser()
@@ -493,6 +509,7 @@ def main(default_backend: str | None = None) -> None:
         Path(args.voice_root),
         Path(args.output_root),
         default_backend or "cosyvoice",
+        backend_factory,
     )
     VoiceWorkerServer(("127.0.0.1", args.port), state, args.boot_token).serve_forever(
         poll_interval=0.25

@@ -165,16 +165,23 @@ def install_model(
 
     staging = weights_root / f"{directory}.installing"
     staging.mkdir(parents=True, exist_ok=True)
-    emit(progress, f"正在下载 {item['label']} 官方权重…")
-    snapshot_download(
-        repo_id=str(item["repository"]),
-        revision=str(item["revision"]),
-        local_dir=staging,
-        allow_patterns=[str(pattern) for pattern in item.get("allowPatterns", ["*"])],
-    )
+    try:
+        verify_required(staging, required)
+        staged_files_valid = bool(required)
+    except RuntimeError:
+        staged_files_valid = False
+    if not staged_files_valid:
+        emit(progress, f"正在下载 {item['label']} 官方权重…")
+        snapshot_download(
+            repo_id=str(item["repository"]),
+            revision=str(item["revision"]),
+            local_dir=staging,
+            allow_patterns=[str(pattern) for pattern in item.get("allowPatterns", ["*"])],
+        )
     install_extra_files(staging, cache_root, item)
     emit(min(92, progress + 10), f"正在校验 {item['label']} 权重 SHA-256…")
-    verify_required(staging, required)
+    if not staged_files_valid:
+        verify_required(staging, required)
     atomic_receipt(
         staging,
         {

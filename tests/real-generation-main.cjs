@@ -147,9 +147,10 @@ app
       (id) => engine.getResultPath(id),
       () => undefined,
     );
+    const selectedModel = option("--model") || "voxcpm2";
     const base = {
       requestId: `real-${randomUUID()}`,
-      modelId: "voxcpm2",
+      modelId: selectedModel,
       voiceId: profile.id,
       language: "auto",
       emotion: "自然",
@@ -158,7 +159,7 @@ app
       format: "mp3",
       expression: "自然、清晰",
       presetId: "longform",
-      voxMode: "controlled",
+      voxMode: selectedModel === "voxcpm2" ? "controlled" : undefined,
     };
     const reports = [];
     if (args.includes("--record")) {
@@ -178,7 +179,16 @@ app
       reports.push({ test: "original-problem-script", result });
     }
     if (args.includes("--model-checks")) {
-      for (const modelId of ["voxcpm2", "indextts2-5", "fun-cosyvoice3-0.5b"]) {
+      const modelIds = option("--model")
+        ? [selectedModel]
+        : [
+            "voxcpm2",
+            "indextts2-5",
+            "fun-cosyvoice3-0.5b",
+            "qwen3-tts",
+            "zonos3-mini",
+          ];
+      for (const modelId of modelIds) {
         const command = {
           type: "generate",
           request: {
@@ -273,7 +283,7 @@ app
       const result = await waitForTask(task.id);
       assert.ok(result && result.durationSeconds > 200);
       assert.equal(result.quality.checkedSegments, captions.length);
-      const outputRoot = path.join(artifactRoot, "outputs", "voxcpm2");
+      const outputRoot = path.join(artifactRoot, "outputs", selectedModel);
       let cacheFile;
       let before;
       for (const name of await readdir(outputRoot)) {

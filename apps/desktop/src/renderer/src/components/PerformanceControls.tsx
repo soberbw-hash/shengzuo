@@ -115,6 +115,8 @@ export const PerformanceControls = ({
     EXPRESSION_PRESETS.find((item) => item.value === expressionSelection)
       ?.label ?? "自定义表达";
 
+  if (!capabilities.emotion && !capabilities.expression) return null;
+
   return (
     <div
       className={

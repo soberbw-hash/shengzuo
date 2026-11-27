@@ -13,7 +13,7 @@
 
 <p align="center">
   <img alt="Windows 10/11" src="https://img.shields.io/badge/Windows-10%20%7C%2011-3b82f6" />
-  <img alt="版本 1.0.2" src="https://img.shields.io/badge/version-1.0.2-22a67a" />
+  <img alt="版本 1.0.3" src="https://img.shields.io/badge/version-1.0.3-22a67a" />
   <img alt="本地运行" src="https://img.shields.io/badge/voice-local--first-60a5fa" />
   <img alt="保留全部权利" src="https://img.shields.io/badge/license-All%20Rights%20Reserved-64748b" />
 </p>
@@ -60,13 +60,15 @@
 
 多人对话使用的完整规则保存在 [多人对话脚本整理提示词](prompts/多人对话脚本整理.md)，可直接复制给其他支持结构化 JSON 输出的文本模型使用。
 
-## 三款模型怎么选
+## 五款模型怎么选
 
 | 模型                    | 推荐度 | 突出特点                                 | 建议显存 | 典型用途                       |
 | ----------------------- | -----: | ---------------------------------------- | -------: | ------------------------------ |
 | **VoxCPM2**             |  ★★★★★ | 综合最推荐；三种克隆/造声方式、30 种语言 |     8GB+ | 大多数口播、旁白和多语言创作   |
 | **Fun-CosyVoice3 0.5B** |  ★★★★☆ | 19 种中文方言/口音，中文方言选择更多     |     8GB+ | 粤语、东北话、四川话等方言内容 |
 | **IndexTTS-2.5**        |  ★★★★★ | 情绪演绎、五种语言与发音控制             |    12GB+ | 非商业的细腻语气与指定发音     |
+| **Qwen3-TTS 1.7B Base** |   克隆 | 普通话和中英混读，可填写参考录音原文     |    12 GB | 本软件单次推理约 2 分钟        |
+| **ZONOS3-Mini**         |   克隆 | 43 种语言，使用模型内语速控制            |     8 GB | 本软件单次推理约 2 分钟        |
 
 语言菜单会列出当前软件中的全部选项。模型不支持的语言会显示锁标志，并提示需要切换到哪款模型。默认只加载一个大模型，切换时会释放上一款。
 
@@ -78,7 +80,7 @@
 - 推荐 16GB 以上系统内存。
 - NVIDIA 显卡不是必需；满足显存要求时自动使用 CUDA，没有合适显卡时自动切换 CPU。
 - CPU 可以使用，但首次准备和生成速度明显更慢。
-- 每款模型完整占用约 15–18GB；三款全部安装建议预留 55GB。
+- 单款建议预留 10–18 GB；只需安装有用到的模型。
 - 无需预装 Node.js、Python、FFmpeg 或 CUDA Toolkit。
 
 ## 模型与个人文件放在哪里
@@ -154,10 +156,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package
 正式发布时可以固定英文资产名：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1 -ReleaseDate "2026-11-26" -PackageName "ShengZuo-1.0.2-Windows-Portable"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1 -ReleaseDate "2026-11-27" -PackageName "ShengZuo-1.0.3-Windows-Portable"
 ```
 
-本机三款模型完整安装后，生成含模型文件夹：
+本机五款模型完整安装后，生成含模型文件夹：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-complete-package-with-models.ps1
@@ -167,7 +169,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-complete-pack
 
 ```text
 apps/desktop/        Electron 主进程、预加载层和 React 界面
-engines/             三款隔离模型插件与本地 Worker
+engines/             隔离模型插件与本地 Worker
 packages/            共享类型、UI、下载、模型和硬件组件
 scripts/             启动、验证、截图与打包脚本
 tests/               桌面交互与视觉自动化测试

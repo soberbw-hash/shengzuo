@@ -31,16 +31,18 @@
 
 基础便携包不含模型权重、Python、PyTorch 或 FFmpeg。软件只在使用者选择安装模型后下载固定版本；若把已经下载好的模型库再次分发，必须连同模型源码、Python wheel 的许可元数据和实际 FFmpeg 构建附带的许可一起重新审计。
 
-| 模型或辅助权重           | 固定来源                                                   | 许可与限制                                                                               |
-| ------------------------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| VoxCPM2                  | `openbmb/VoxCPM2` revision `bffb3df…`；`voxcpm==2.0.3`     | Apache-2.0                                                                               |
-| Fun-CosyVoice3 0.5B 2512 | `FunAudioLLM/Fun-CosyVoice3-0.5B-2512` revision `29e01c4…` | Apache-2.0                                                                               |
-| CosyVoice / Matcha-TTS   | CosyVoice commit `074ca6d…`；Matcha-TTS commit `dd9105b…`  | Apache-2.0 / MIT                                                                         |
-| IndexTTS-2.5             | source commit `4f8792f…`；model revision `c39ce5b…`        | bilibili Model Use License Agreement；完整中文条款见 `IndexTTS-2.5-MODEL-LICENSE-ZH.txt` |
-| W2v-BERT 2.0             | `facebook/w2v-bert-2.0` revision `da985ba…`                | MIT                                                                                      |
-| MaskGCT semantic codec   | `amphion/MaskGCT` revision `265c6ce…`                      | CC BY-NC 4.0，仅限非商业使用                                                             |
-| CAM++ speaker model      | `funasr/campplus` revision `e4b6ede…`                      | Apache-2.0                                                                               |
-| NVIDIA BigVGAN           | revision `633ff70…`                                        | MIT                                                                                      |
+| 模型或辅助权重           | 固定来源                                                     | 许可与限制                                                                                  |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| VoxCPM2                  | `openbmb/VoxCPM2` revision `bffb3df…`；`voxcpm==2.0.3`       | Apache-2.0                                                                                  |
+| Fun-CosyVoice3 0.5B 2512 | `FunAudioLLM/Fun-CosyVoice3-0.5B-2512` revision `29e01c4…`   | Apache-2.0                                                                                  |
+| Qwen3-TTS 1.7B Base      | Qwen/Qwen3-TTS-12Hz-1.7B-Base，修订 fd4b254…；qwen-tts 0.1.1 | Apache-2.0                                                                                  |
+| ZONOS3-Mini-hf           | Zyphra/ZONOS3-Mini-hf，修订 e39d30d…                         | 权重 Apache-2.0，推理代码含 MIT、Apache-2.0 和 BSD-2-Clause，原始 NOTICE 和许可证随模型下载 |
+| CosyVoice / Matcha-TTS   | CosyVoice commit `074ca6d…`；Matcha-TTS commit `dd9105b…`    | Apache-2.0 / MIT                                                                            |
+| IndexTTS-2.5             | source commit `4f8792f…`；model revision `c39ce5b…`          | bilibili Model Use License Agreement；完整中文条款见 `IndexTTS-2.5-MODEL-LICENSE-ZH.txt`    |
+| W2v-BERT 2.0             | `facebook/w2v-bert-2.0` revision `da985ba…`                  | MIT                                                                                         |
+| MaskGCT semantic codec   | `amphion/MaskGCT` revision `265c6ce…`                        | CC BY-NC 4.0，仅限非商业使用                                                                |
+| CAM++ speaker model      | `funasr/campplus` revision `e4b6ede…`                        | Apache-2.0                                                                                  |
+| NVIDIA BigVGAN           | revision `633ff70…`                                          | MIT                                                                                         |
 
 Apache License 2.0 完整文本见 `Apache-2.0.txt`。模型清单、允许下载文件和关键 SHA-256 位于 `engines/<模型>/model-manifest.json`。
 
