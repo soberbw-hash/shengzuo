@@ -1,7 +1,8 @@
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "common" / "worker"))
+worker_root = Path(__file__).resolve().parent
+sys.path[:0] = [str(worker_root), str(worker_root.parents[1] / "common" / "worker")]
 from server_core import main
 from qwen3_backend import Qwen3Backend
 

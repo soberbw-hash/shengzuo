@@ -1,3 +1,4 @@
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -31,3 +32,15 @@ class BoundedSpeechTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "AUDIO_DURATION_LIMIT"):
                 render_script("短句", path, lambda _: (np.zeros(100), 8000, True))
             self.assertFalse(path.exists())
+
+    def test_new_worker_entrypoints_start_without_script_directory_on_python_path(self):
+        engines = Path(__file__).resolve().parents[2]
+        for engine in ("qwen3-tts", "zonos3-mini"):
+            with self.subTest(engine=engine):
+                worker = engines / engine / "worker" / "server.py"
+                response = subprocess.run(
+                    [sys.executable, "-I", str(worker), "--help"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                self.assertEqual(response.returncode, 0, response.stderr)
+                self.assertIn("--boot-token", response.stdout)
