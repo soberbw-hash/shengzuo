@@ -1,5 +1,5 @@
 export const APP_NAME = "声作";
-export const APP_VERSION = "1.0.3";
+export const APP_VERSION = "1.0.4";
 export const APP_DESCRIPTOR = "本地声音创作工作台";
 export const APP_TAGLINE = "让自己的声音，成为作品。";
 
@@ -63,7 +63,7 @@ export const MODEL_CATALOG = [
     name: "Qwen3-TTS 1.7B Base",
     purpose: "普通话克隆、中英混读",
     summary: "克隆参考录音。提供准确原文可帮助保持语气。",
-    taskLabel: "Qwen3-TTS",
+    taskLabel: "参考音克隆",
     badge: "录音克隆",
     rating: null,
     ratingLabel: "本地多语言克隆",
@@ -81,7 +81,7 @@ export const MODEL_CATALOG = [
     name: "ZONOS3-Mini",
     purpose: "参考音克隆、连续配音",
     summary: "根据参考录音克隆，直接在模型内控制语速。",
-    taskLabel: "ZONOS3-Mini",
+    taskLabel: "连续配音",
     badge: "原生语速",
     rating: null,
     ratingLabel: "多语言和语速控制",

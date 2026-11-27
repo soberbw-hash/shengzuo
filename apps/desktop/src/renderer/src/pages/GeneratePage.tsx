@@ -27,7 +27,6 @@ import {
 
 import {
   ENGINE_STATUS_COPY,
-  MODEL_CATALOG,
   MODEL_VOICE_MODE_SUPPORT,
   SINGLE_GENERATION_TEXT_LIMITS,
   VOX_VOICE_MODES,
@@ -1190,13 +1189,7 @@ export const GeneratePage = () => {
 
         <div className="generate-control-column space-y-5">
           <GlassCard tone="solid" padding="lg">
-            <SectionHeading
-              title="3. 生成配音"
-              description={
-                MODEL_CATALOG.find((model) => model.id === store.selectedModel)
-                  ?.name
-              }
-            />
+            <SectionHeading title="3. 生成配音" />
             <div className="mt-4 space-y-4">
               <div className="generation-model-field">
                 <GenerationModelSelect

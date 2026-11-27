@@ -1591,6 +1591,16 @@ select.field-control {
   min-width: 0;
 }
 
+.generation-model-select .field-control {
+  padding-inline-end: 32px;
+}
+
+.subtitle-settings__grid .model-language-select__trigger,
+.dialogue-global-controls .model-language-select__trigger {
+  gap: 4px;
+  padding-inline: 8px;
+}
+
 .generation-model-limit {
   margin: 4px 0 0;
   grid-column: 1 / -1;
@@ -4097,7 +4107,7 @@ select.field-control {
 
 .subtitle-settings__grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 30%);
   align-items: end;
   gap: 10px;
 }
@@ -4306,7 +4316,7 @@ select.field-control {
 
 .dialogue-global-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr) minmax(96px, 30%);
   gap: 10px;
   margin-top: 12px;
 }
