@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory)]
-  [ValidateSet('voxcpm', 'cosyvoice', 'indextts', 'qwen3', 'zonos3')]
+  [ValidateSet('voxcpm', 'cosyvoice', 'indextts', 'qwen3')]
   [string]$Flavor,
   [ValidateSet('cuda', 'cpu')]
   [string]$Compute = 'cuda',
@@ -161,7 +161,7 @@ if ($Flavor -eq 'indextts') {
   Install-PythonPackages -ExtraArguments @('--no-build-isolation') -Packages @(
     'openai-whisper==20231117'
   )
-} elseif ($Flavor -in @('qwen3', 'zonos3')) {
+} elseif ($Flavor -eq 'qwen3') {
   Install-PythonPackages -ExtraArguments @('--index-url', $torchIndex) -Packages @(
     'torch==2.9.1', 'torchaudio==2.9.1'
   )
@@ -170,11 +170,7 @@ if ($Flavor -eq 'indextts') {
     'numpy==1.26.4', 'soundfile==0.13.1', 'imageio-ffmpeg==0.6.0',
     'huggingface-hub>=0.36,<1.0', 'hf-xet>=1.1,<2.0', 'transformers==4.57.3'
   )
-  if ($Flavor -eq 'qwen3') {
-    Install-PythonPackages -Packages @('qwen-tts==0.1.1')
-  } else {
-    Install-PythonPackages -Packages @('zyphra-textnorm==0.3.1')
-  }
+  Install-PythonPackages -Packages @('qwen-tts==0.1.1')
 } else {
   Install-PythonPackages -ExtraArguments @('--index-url', $torchIndex) -Packages @(
     'torch==2.9.1', 'torchaudio==2.9.1'

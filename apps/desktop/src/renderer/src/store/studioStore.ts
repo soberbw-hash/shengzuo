@@ -2,9 +2,11 @@ import { create } from "zustand";
 
 import {
   normalizeGenerationControls,
+  isAvailableModelId,
   resolveModelLanguage,
   getModelGenerationCapabilities,
   type AudioResult,
+  type AvailableModelId,
   type Emotion,
   type EngineSnapshot,
   type GenerationProject,
@@ -36,7 +38,7 @@ export interface ToastMessage {
 const initialVoiceProfiles: VoiceProfile[] = [];
 
 interface StudioState {
-  selectedModel: ModelId;
+  selectedModel: AvailableModelId;
   selectedVoice: string;
   voiceProfiles: VoiceProfile[];
   text: string;
@@ -126,12 +128,17 @@ export const useStudioStore = create<StudioState>((set) => ({
   tasks: [],
   activeVoicePreview: null,
   toasts: [],
-  setSelectedModel: (selectedModel) =>
-    set((state) => ({
-      ...modelContext(state, selectedModel, state.language),
-      selectedModel,
-      engine: state.engines[selectedModel] ?? null,
-    })),
+  setSelectedModel: (modelId) =>
+    set((state) => {
+      const selectedModel = isAvailableModelId(modelId)
+        ? modelId
+        : state.selectedModel;
+      return {
+        ...modelContext(state, selectedModel, state.language),
+        selectedModel,
+        engine: state.engines[selectedModel] ?? null,
+      };
+    }),
   setSelectedVoice: (selectedVoice) => set({ selectedVoice }),
   setVoiceProfiles: (voiceProfiles) => set({ voiceProfiles }),
   addVoiceProfile: (voice) =>

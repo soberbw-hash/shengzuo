@@ -18,6 +18,9 @@ import {
   isUpdateSmartApiConfigRequest,
   getModelGenerationCapabilities,
   getSmartScriptDestination,
+  getModelName,
+  isAvailableModelId,
+  isModelId,
   normalizeGenerationControls,
   resolveModelLanguage,
   isRenameVoiceProfileRequest,
@@ -69,7 +72,7 @@ void test("export naming template renders a safe predictable file name", () => {
   assert.equal(isExportNamingTemplate("{项目}_{"), false);
 });
 
-void test("model catalog contains five engine profiles with distinct capabilities", () => {
+void test("model catalog contains four engine profiles with distinct capabilities", () => {
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.name),
     [
@@ -77,22 +80,15 @@ void test("model catalog contains five engine profiles with distinct capabilitie
       "Fun-CosyVoice3 0.5B 2512",
       "IndexTTS-2.5",
       "Qwen3-TTS 1.7B Base",
-      "ZONOS3-Mini",
     ],
   );
   assert.deepEqual(
     MODEL_CATALOG.filter((model) => model.available).map((model) => model.id),
-    [
-      "voxcpm2",
-      "fun-cosyvoice3-0.5b",
-      "indextts2-5",
-      "qwen3-tts",
-      "zonos3-mini",
-    ],
+    ["voxcpm2", "fun-cosyvoice3-0.5b", "indextts2-5", "qwen3-tts"],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.badge),
-    ["首选", "方言多", "情绪强", "录音克隆", "原生语速"],
+    ["首选", "方言多", "情绪强", "录音克隆"],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => [model.rating, model.ratingLabel]),
@@ -101,13 +97,18 @@ void test("model catalog contains five engine profiles with distinct capabilitie
       [4.5, "方言创作首选"],
       [4.8, "表现力推荐"],
       [null, "本地多语言克隆"],
-      [null, "多语言和语速控制"],
     ],
   );
   assert.deepEqual(
     MODEL_CATALOG.map((model) => model.usageRestriction),
-    [null, null, "仅限非商业", null, null],
+    [null, null, "仅限非商业", null],
   );
+});
+
+void test("removed engine remains identifiable in historical records only", () => {
+  assert.equal(isModelId("zonos3-mini"), true);
+  assert.equal(isAvailableModelId("zonos3-mini"), false);
+  assert.equal(getModelName("zonos3-mini"), "ZONOS3-Mini");
 });
 
 void test("text helpers ignore whitespace and create a useful short title", () => {

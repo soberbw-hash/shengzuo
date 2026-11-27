@@ -30,7 +30,6 @@ const configs = {
     dataFolder: "fun-cosyvoice3",
   },
   "qwen3-tts": { folder: "qwen3-tts", dataFolder: "qwen3-tts" },
-  "zonos3-mini": { folder: "zonos3-mini", dataFolder: "zonos3-mini" },
   "indextts2-5": {
     folder: "indextts2-5",
     dataFolder: "indextts2-5",

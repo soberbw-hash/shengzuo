@@ -60,7 +60,7 @@
 
 多人对话使用的完整规则保存在 [多人对话脚本整理提示词](prompts/多人对话脚本整理.md)，可直接复制给其他支持结构化 JSON 输出的文本模型使用。
 
-## 五款模型怎么选
+## 四款模型怎么选
 
 | 模型                    | 推荐度 | 突出特点                                 | 建议显存 | 典型用途                       |
 | ----------------------- | -----: | ---------------------------------------- | -------: | ------------------------------ |
@@ -68,7 +68,6 @@
 | **Fun-CosyVoice3 0.5B** |  ★★★★☆ | 19 种中文方言/口音，中文方言选择更多     |     8GB+ | 粤语、东北话、四川话等方言内容 |
 | **IndexTTS-2.5**        |  ★★★★★ | 情绪演绎、五种语言与发音控制             |    12GB+ | 非商业的细腻语气与指定发音     |
 | **Qwen3-TTS 1.7B Base** |   克隆 | 普通话和中英混读，可填写参考录音原文     |    12 GB | 本软件单次推理约 2 分钟        |
-| **ZONOS3-Mini**         |   克隆 | 43 种语言，使用模型内语速控制            |     8 GB | 本软件单次推理约 2 分钟        |
 
 语言菜单会列出当前软件中的全部选项。模型不支持的语言会显示锁标志，并提示需要切换到哪款模型。默认只加载一个大模型，切换时会释放上一款。
 
@@ -159,7 +158,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-share-package.ps1 -ReleaseDate "2026-11-27" -PackageName "ShengZuo-1.0.4-Windows-Portable"
 ```
 
-本机五款模型完整安装后，生成含模型文件夹：
+本机四款模型完整安装后，生成含模型文件夹：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create-complete-package-with-models.ps1

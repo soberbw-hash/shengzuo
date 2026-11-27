@@ -1,6 +1,6 @@
 import {
   DEFAULT_EXPORT_NAMING_TEMPLATE,
-  MODEL_CATALOG,
+  getModelName,
   renderExportFileStem,
   type AudioResult,
   type ExportAudioResult,
@@ -13,9 +13,7 @@ export const exportAudioResult = async (
   result: AudioResult,
 ): Promise<ExportAudioResult> => {
   const settings = await desktopApi.audio.getExportNamingSettings();
-  const modelName = MODEL_CATALOG.find(
-    (model) => model.id === result.modelId,
-  )?.name;
+  const modelName = getModelName(result.modelId);
   const title = resolveResultTitle(
     undefined,
     result.title,

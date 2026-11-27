@@ -1,7 +1,7 @@
 import {
   MODEL_CATALOG,
   MODEL_SEGMENT_LIMIT_NOTE,
-  isModelId,
+  isAvailableModelId,
   type ModelId,
 } from "@ai-voice-studio/shared-types";
 import { SelectField } from "@ai-voice-studio/ui";
@@ -25,7 +25,8 @@ export const GenerationModelSelect = ({
         title={selectedModel ? modelOptionLabel(selectedModel) : undefined}
         value={modelId}
         onChange={(event) => {
-          if (isModelId(event.target.value)) onChange(event.target.value);
+          if (isAvailableModelId(event.target.value))
+            onChange(event.target.value);
         }}
       >
         {MODEL_CATALOG.map((model) => (

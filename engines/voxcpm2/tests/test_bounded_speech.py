@@ -35,7 +35,7 @@ class BoundedSpeechTests(unittest.TestCase):
 
     def test_new_worker_entrypoints_start_without_script_directory_on_python_path(self):
         engines = Path(__file__).resolve().parents[2]
-        for engine in ("qwen3-tts", "zonos3-mini"):
+        for engine in ("qwen3-tts",):
             with self.subTest(engine=engine):
                 worker = engines / engine / "worker" / "server.py"
                 response = subprocess.run(

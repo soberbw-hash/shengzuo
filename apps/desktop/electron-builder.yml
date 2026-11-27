@@ -58,12 +58,6 @@ extraResources:
       - "!**/*.pyo"
       - "!**/test/**"
       - "!**/tests/**"
-  - from: engines/zonos3-mini
-    to: engines/zonos3-mini
-    filter:
-      - "**/*"
-      - "!**/__pycache__/**"
-      - "!**/*.pyc"
   - from: engines/qwen3-tts
     to: engines/qwen3-tts
     filter:

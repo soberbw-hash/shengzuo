@@ -1,7 +1,7 @@
 import { Download, Heart, Pause, Pencil, Play, Trash2 } from "lucide-react";
 
 import {
-  MODEL_CATALOG,
+  getModelName,
   getGenerationPreset,
   getModelGenerationCapabilities,
   type AudioResult,
@@ -56,9 +56,7 @@ export const HistoryAudioRow = ({
   } = useAudioPlayback(result.url, result.durationSeconds);
   const pushToast = useStudioStore((state) => state.pushToast);
   const source = result.url;
-  const modelName =
-    MODEL_CATALOG.find((model) => model.id === result.modelId)?.name ??
-    "本地模型";
+  const modelName = getModelName(result.modelId) ?? "本地模型";
   const presetLabel = getGenerationPreset(result.presetId).label;
   const capabilities = result.modelId
     ? getModelGenerationCapabilities(result.modelId, result.language ?? "auto")

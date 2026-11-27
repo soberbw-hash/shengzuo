@@ -18,7 +18,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import {
-  MODEL_CATALOG,
+  getModelName,
   createTitleFromText,
   getGenerationPreset,
   getModelGenerationCapabilities,
@@ -324,9 +324,7 @@ export const ProjectsPage = () => {
           const project = result.projectId
             ? projectById.get(result.projectId)
             : undefined;
-          const modelName =
-            MODEL_CATALOG.find((model) => model.id === result.modelId)?.name ??
-            "";
+          const modelName = getModelName(result.modelId) ?? "";
           return [
             resultTitle(result, projectById),
             project ? projectTitle(project) : undefined,

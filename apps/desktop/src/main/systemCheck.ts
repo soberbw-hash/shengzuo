@@ -61,12 +61,6 @@ const modelChecks: readonly ModelCheckConfig[] = [
     folder: "qwen3-tts",
     receipts: ["weights/Qwen3-TTS-12Hz-1.7B-Base/install-receipt.json"],
   },
-  {
-    id: "zonos3-mini",
-    name: "ZONOS3-Mini",
-    folder: "zonos3-mini",
-    receipts: ["weights/ZONOS3-Mini-hf/install-receipt.json"],
-  },
 ] as const;
 
 const workerFiles = [
@@ -85,9 +79,6 @@ const workerFiles = [
   "qwen3-tts/worker/server.py",
   "qwen3-tts/worker/qwen3_backend.py",
   "qwen3-tts/model-manifest.json",
-  "zonos3-mini/worker/server.py",
-  "zonos3-mini/worker/zonos3_backend.py",
-  "zonos3-mini/model-manifest.json",
 ] as const;
 
 const canBindLoopback = async (): Promise<boolean> =>

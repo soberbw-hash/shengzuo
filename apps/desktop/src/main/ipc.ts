@@ -163,7 +163,6 @@ export const registerIpcHandlers = (): (() => void) => {
         "fun-cosyvoice3   Fun-CosyVoice3（更多中文方言）",
         "indextts2-5      IndexTTS-2.5（情绪与发音控制）",
         "qwen3-tts       Qwen3-TTS 1.7B Base（参考录音克隆）",
-        "zonos3-mini     ZONOS3-Mini（参考录音克隆与语速控制）",
         "",
         "需要删除模型时：先退出声作，再删除对应的整个文件夹。",
         "重新打开声作后，软件会自动识别；需要时可以再次一键下载。",

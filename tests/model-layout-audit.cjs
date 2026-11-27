@@ -71,7 +71,7 @@ const inspectModelCardsLayout = (window) =>
     const rowHeightsMatch = details.every((card) =>
       details.filter(other => Math.abs(card.rect.top - other.rect.top) <= tolerance)
         .every(other => Math.abs(card.rect.height - other.rect.height) <= tolerance));
-    const requiredModels = ["VoxCPM2", "Fun-CosyVoice3 0.5B 2512", "IndexTTS-2.5", "Qwen3-TTS 1.7B Base", "ZONOS3-Mini"];
+    const requiredModels = ["VoxCPM2", "Fun-CosyVoice3 0.5B 2512", "IndexTTS-2.5", "Qwen3-TTS 1.7B Base"];
     const maximumHeight = Math.max(...heights);
     const minimumHeight = Math.min(...heights);
     const lowestBottom = Math.max(...details.map((card) => card.rect.bottom));

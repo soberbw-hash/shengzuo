@@ -76,27 +76,16 @@ export const MODEL_CATALOG = [
     suitable: true,
     available: true,
   },
-  {
-    id: "zonos3-mini",
-    name: "ZONOS3-Mini",
-    purpose: "参考音克隆、连续配音",
-    summary: "根据参考录音克隆，直接在模型内控制语速。",
-    taskLabel: "连续配音",
-    badge: "原生语速",
-    rating: null,
-    ratingLabel: "多语言和语速控制",
-    version: "Mini · Transformers",
-    estimatedSize: "约 10 GB",
-    recommendedHardware: "NVIDIA 显卡，8GB 显存",
-    hardwareNote: "43 种语言",
-    license: "Apache License 2.0",
-    usageRestriction: null,
-    suitable: true,
-    available: true,
-  },
 ] as const;
 
-export type ModelId = (typeof MODEL_CATALOG)[number]["id"];
+export type AvailableModelId = (typeof MODEL_CATALOG)[number]["id"];
+export const RETIRED_MODEL_ID = "zonos3-mini";
+export type ModelId = AvailableModelId | typeof RETIRED_MODEL_ID;
+
+export const getModelName = (modelId?: ModelId): string | undefined =>
+  modelId === RETIRED_MODEL_ID
+    ? "ZONOS3-Mini"
+    : MODEL_CATALOG.find((model) => model.id === modelId)?.name;
 
 export type VoxVoiceMode = "controlled" | "ultimate" | "design";
 
@@ -130,7 +119,7 @@ export const MODEL_VOICE_MODE_SUPPORT: Record<
   "fun-cosyvoice3-0.5b": ["controlled"],
   "indextts2-5": ["controlled"],
   "qwen3-tts": ["controlled"],
-  "zonos3-mini": ["controlled"],
+  [RETIRED_MODEL_ID]: ["controlled"],
 };
 
 export const SINGLE_GENERATION_TEXT_LIMITS: Record<ModelId, number> = {
@@ -138,13 +127,11 @@ export const SINGLE_GENERATION_TEXT_LIMITS: Record<ModelId, number> = {
   "fun-cosyvoice3-0.5b": 2_000,
   "indextts2-5": 2_000,
   "qwen3-tts": 2_000,
-  "zonos3-mini": 2_000,
+  [RETIRED_MODEL_ID]: 2_000,
 };
 
 export const MODEL_SEGMENT_LIMIT_NOTE: Partial<Record<ModelId, string>> = {
   "qwen3-tts": "本软件单次推理约 2 分钟，长稿会分段。参考录音原文选填。",
-  "zonos3-mini":
-    "本软件限制单次推理约 2 分钟，长稿会分段合成。克隆只使用参考录音。",
 };
 
 /** 防止损坏的持久化任务制造无限数量的重试种子。 */
@@ -363,7 +350,7 @@ export const MODEL_LANGUAGE_SUPPORT: Record<ModelId, readonly Language[]> = {
     "es",
     "it",
   ],
-  "zonos3-mini": [
+  [RETIRED_MODEL_ID]: [
     "auto",
     "zh",
     "en",
@@ -487,7 +474,7 @@ export const MODEL_GENERATION_CAPABILITIES: Record<
     expression: "none",
     presets: ["natural", "longform"],
   },
-  "zonos3-mini": {
+  [RETIRED_MODEL_ID]: {
     emotion: false,
     expression: "none",
     presets: ["natural", "longform"],
@@ -1317,7 +1304,11 @@ export const ENGINE_STATUS_COPY: Record<
 const engineStatuses = new Set<EngineStatus>(
   Object.keys(ENGINE_STATUS_COPY) as EngineStatus[],
 );
-const modelIds = new Set<ModelId>(MODEL_CATALOG.map((model) => model.id));
+const availableModels = new Set<string>(MODEL_CATALOG.map((model) => model.id));
+
+export const isAvailableModelId = (value: unknown): value is AvailableModelId =>
+  typeof value === "string" && availableModels.has(value);
+
 const outputFormats = new Set<OutputFormat>(["mp3"]);
 const languages = new Set<Language>(
   LANGUAGE_OPTIONS.map((language) => language.id),
@@ -1428,7 +1419,7 @@ export const isEngineStatus = (value: unknown): value is EngineStatus =>
   typeof value === "string" && engineStatuses.has(value as EngineStatus);
 
 export const isModelId = (value: unknown): value is ModelId =>
-  typeof value === "string" && modelIds.has(value as ModelId);
+  value === RETIRED_MODEL_ID || isAvailableModelId(value);
 
 export const isGenerationRequest = (
   value: unknown,

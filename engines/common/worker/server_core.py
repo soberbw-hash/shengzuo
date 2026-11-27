@@ -366,10 +366,9 @@ class WorkerState:
                 normalized_reference = temporary / "reference.wav"
                 raw_output = temporary / "generated.wav"
                 normalize_reference(reference_audio, normalized_reference)
-                native_speed = False
                 if hasattr(self.backend, "render"):
-                    native_speed = self.backend.render(
-                        text, normalized_reference, reference_text, language, speed,
+                    self.backend.render(
+                        text, normalized_reference, reference_text, language,
                         int(payload.get("generationSeed", 3407)), raw_output
                     )
                 elif isinstance(self.backend, IndexTTSBackend):
@@ -384,7 +383,7 @@ class WorkerState:
                     )
                 if not raw_output.is_file():
                     raise RuntimeError("EMPTY_GENERATION")
-                duration = encode_mp3(raw_output, output_path, 1.0 if native_speed else speed, volume)
+                duration = encode_mp3(raw_output, output_path, speed, volume)
             return {
                 "fileName": output_path.name,
                 "durationSeconds": round(duration, 3),

@@ -341,7 +341,6 @@ void app
           'Fun-CosyVoice3 0.5B 2512 · 方言口播',
           'IndexTTS-2.5 · 角色情绪',
           'Qwen3-TTS 1.7B Base · 参考音克隆',
-          'ZONOS3-Mini · 连续配音',
         ];
         if (labels.join('|') !== expected.join('|')) return false;
         const metrics = document.createElement('canvas').getContext('2d');
@@ -350,7 +349,7 @@ void app
         const available = field.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
         if (labels.some((label) => metrics.measureText(label.split(' · ')[0]).width > available + 2)) return false;
         const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
-        setter.call(field, 'zonos3-mini');
+        setter.call(field, 'qwen3-tts');
         field.dispatchEvent(new Event('change', { bubbles: true }));
         return true;
       })()`);
@@ -359,7 +358,7 @@ void app
       await waitFor(
         window,
         "document.body.innerText.includes('约 2 分钟')",
-        "显示 ZONOS3 单次时长",
+        "显示 Qwen3-TTS 单次时长",
       );
     }
 
@@ -1590,7 +1589,6 @@ void app
       "Fun-CosyVoice3 0.5B 2512",
       "IndexTTS-2.5",
       "Qwen3-TTS 1.7B Base",
-      "ZONOS3-Mini",
     ]) {
       const opened = await window.webContents.executeJavaScript(`(() => {
         const card = [...document.querySelectorAll('.model-card')].find(

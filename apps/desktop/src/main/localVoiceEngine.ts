@@ -35,6 +35,8 @@ import { detectHardware } from "@ai-voice-studio/hardware-detector";
 import {
   ENGINE_STATUS_COPY,
   MODEL_CATALOG,
+  RETIRED_MODEL_ID,
+  isAvailableModelId,
   getModelGenerationCapabilities,
   normalizeGenerationControls,
   resolveModelLanguage,
@@ -93,6 +95,7 @@ import {
   type SegmentFingerprintInput,
 } from "./generationStability";
 import { readResilientJson, writeResilientJson } from "./resilientJsonStore";
+import { AudioResultStore } from "./audioResultStore";
 import { TaskStore, type StoredGenerationTask } from "./taskStore";
 import {
   moveModelLibrary,
@@ -135,7 +138,7 @@ interface PluginConfig {
   folder: string;
   dataFolder: string;
   name: string;
-  runtimeFlavor: "voxcpm" | "cosyvoice" | "indextts" | "qwen3" | "zonos3";
+  runtimeFlavor: "voxcpm" | "cosyvoice" | "indextts" | "qwen3";
   assetDirectories: readonly string[];
   workerWeightsDirectory?: string;
   loadingMessage: string;
@@ -192,17 +195,6 @@ const pluginConfigs: readonly PluginConfig[] = [
     loadingMessage: "正在加载 Qwen3-TTS 1.7B Base…",
     requiredBytes: 13 * 1024 ** 3,
     minimumCudaVramGb: 8,
-  },
-  {
-    modelId: "zonos3-mini",
-    folder: "zonos3-mini",
-    dataFolder: "zonos3-mini",
-    name: "ZONOS3-Mini",
-    runtimeFlavor: "zonos3",
-    assetDirectories: ["weights/ZONOS3-Mini-hf"],
-    loadingMessage: "正在加载 ZONOS3-Mini…",
-    requiredBytes: 10 * 1024 ** 3,
-    minimumCudaVramGb: 6,
   },
 ] as const;
 
@@ -464,7 +456,6 @@ const safeChunkSize = (
   // Keeping the Main-side chunks at the same scale as the other engines avoids
   // creating a new prosody boundary every few words while retaining recovery
   // and cache checkpoints for genuinely long scripts.
-  if (modelId === "zonos3-mini") return 280;
   if (modelId === "qwen3-tts") return 220;
   return mode === "careful" ? 120 : 160;
 };
@@ -491,6 +482,7 @@ class ModelEngine {
   private readonly weightsRoot: string;
   private readonly sourceRoot: string;
   private readonly outputRoot: string;
+  readonly results: AudioResultStore;
   private readonly pythonExe: string;
   private readonly downloadCheckpointPath: string;
   private snapshot: EngineSnapshot;
@@ -531,6 +523,7 @@ class ModelEngine {
       "outputs",
       config.modelId,
     );
+    this.results = new AudioResultStore(this.outputRoot);
     const legacyOutputRoot = path.join(this.engineDataRoot, "outputs");
     if (!existsSync(this.outputRoot) && existsSync(legacyOutputRoot)) {
       mkdirSync(path.dirname(this.outputRoot), { recursive: true });
@@ -608,83 +601,6 @@ class ModelEngine {
 
   isInstalling(): boolean {
     return this.activeInstallRun !== undefined;
-  }
-
-  getResultPath(resultId: string): string | undefined {
-    const candidate = path.join(this.outputRoot, `${resultId}.mp3`);
-    return existsSync(candidate) ? candidate : undefined;
-  }
-
-  async listResults(): Promise<AudioResult[]> {
-    if (!existsSync(this.outputRoot)) return [];
-    const files = await readdir(this.outputRoot, { withFileTypes: true });
-    const results = await Promise.all(
-      files
-        .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
-        .map(async (entry): Promise<AudioResult | null> => {
-          try {
-            const value: unknown = JSON.parse(
-              await readFile(path.join(this.outputRoot, entry.name), "utf8"),
-            );
-            if (
-              typeof value !== "object" ||
-              value === null ||
-              !("id" in value) ||
-              typeof value.id !== "string" ||
-              !("createdAt" in value) ||
-              typeof value.createdAt !== "string" ||
-              Number.isNaN(Date.parse(value.createdAt)) ||
-              !existsSync(path.join(this.outputRoot, `${value.id}.mp3`))
-            ) {
-              return null;
-            }
-            const result = value as AudioResult;
-            return {
-              ...result,
-              url: `shengzuo-audio://result/${encodeURIComponent(result.id)}`,
-            };
-          } catch {
-            return null;
-          }
-        }),
-    );
-    return results
-      .filter((value): value is AudioResult => value !== null)
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
-  }
-
-  async setResultFavorite(
-    resultId: string,
-    favorite: boolean,
-  ): Promise<AudioResult | undefined> {
-    const metadataPath = path.join(this.outputRoot, `${resultId}.json`);
-    if (!existsSync(metadataPath) || !this.getResultPath(resultId)) {
-      return undefined;
-    }
-    const value: unknown = JSON.parse(await readFile(metadataPath, "utf8"));
-    if (
-      typeof value !== "object" ||
-      value === null ||
-      !("id" in value) ||
-      value.id !== resultId
-    ) {
-      return undefined;
-    }
-    const result = { ...(value as AudioResult), favorite };
-    await this.writeResultMetadata(result);
-    return {
-      ...result,
-      url: `shengzuo-audio://result/${encodeURIComponent(result.id)}`,
-    };
-  }
-
-  async removeResult(resultId: string): Promise<boolean> {
-    if (!this.getResultPath(resultId)) return false;
-    await Promise.all([
-      rm(path.join(this.outputRoot, `${resultId}.mp3`), { force: true }),
-      rm(path.join(this.outputRoot, `${resultId}.json`), { force: true }),
-    ]);
-    return true;
   }
 
   async getStorageInfo(): Promise<ModelStorageInfo> {
@@ -2311,7 +2227,7 @@ class ModelEngine {
   }
 
   private async recordResult(result: AudioResult): Promise<void> {
-    const previousResults = await this.listResults();
+    const previousResults = await this.results.listResults();
     const previousTakes = result.projectId
       ? previousResults.filter((item) => item.projectId === result.projectId)
       : [];
@@ -2320,22 +2236,7 @@ class ModelEngine {
       0,
     );
     result.takeNumber = result.projectId ? takeNumber + 1 : undefined;
-    await this.writeResultMetadata(result);
-  }
-
-  private async writeResultMetadata(result: AudioResult): Promise<void> {
-    await mkdir(this.outputRoot, { recursive: true });
-    const target = path.join(this.outputRoot, `${result.id}.json`);
-    const temporary = `${target}.${randomUUID()}.tmp`;
-    await writeFile(temporary, JSON.stringify(result, null, 2), {
-      encoding: "utf8",
-      flag: "wx",
-    });
-    try {
-      await rename(temporary, target);
-    } finally {
-      await rm(temporary, { force: true });
-    }
+    await this.results.writeResultMetadata(result);
   }
 
   private batchCachePath(projectId: string): string {
@@ -2543,6 +2444,10 @@ export class LocalVoiceEngine {
   private modelLibraryRoot: string;
   private libraryChanging = false;
   private disposed = false;
+
+  private readonly retiredResults = new AudioResultStore(
+    path.join(app.getPath("userData"), "outputs", RETIRED_MODEL_ID),
+  );
 
   constructor(voiceStore: VoiceStore) {
     this.voiceStore = voiceStore;
@@ -2819,8 +2724,15 @@ export class LocalVoiceEngine {
     return engine.getSnapshot();
   }
 
+  private get resultStores(): AudioResultStore[] {
+    return [
+      ...[...this.engines.values()].map((engine) => engine.results),
+      this.retiredResults,
+    ];
+  }
+
   getResultPath(resultId: string): string | undefined {
-    for (const engine of this.engines.values()) {
+    for (const engine of this.resultStores) {
       const result = engine.getResultPath(resultId);
       if (result) return result;
     }
@@ -2829,7 +2741,7 @@ export class LocalVoiceEngine {
 
   async listResults(): Promise<AudioResult[]> {
     const groups = await Promise.all(
-      [...this.engines.values()].map((engine) => engine.listResults()),
+      this.resultStores.map((engine) => engine.listResults()),
     );
     return groups
       .flat()
@@ -2840,7 +2752,7 @@ export class LocalVoiceEngine {
     resultId: string,
     favorite: boolean,
   ): Promise<AudioResult> {
-    for (const engine of this.engines.values()) {
+    for (const engine of this.resultStores) {
       const result = await engine.setResultFavorite(resultId, favorite);
       if (result) return result;
     }
@@ -2848,7 +2760,7 @@ export class LocalVoiceEngine {
   }
 
   async removeResult(resultId: string): Promise<boolean> {
-    for (const engine of this.engines.values()) {
+    for (const engine of this.resultStores) {
       if (await engine.removeResult(resultId)) return true;
     }
     return false;
@@ -2900,6 +2812,11 @@ export class LocalVoiceEngine {
   }
 
   private async assertTaskCanStart(request: EnqueueTaskRequest): Promise<void> {
+    if (!isAvailableModelId(request.request.modelId)) {
+      throw new Error(
+        "这个项目使用的模型已移除，请继续编辑项目并选择其他模型。",
+      );
+    }
     const model = this.requireEngine(request.request.modelId);
     const status = model.refreshInstallationState().status;
     if (

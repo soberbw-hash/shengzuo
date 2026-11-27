@@ -181,13 +181,7 @@ app
     if (args.includes("--model-checks")) {
       const modelIds = option("--model")
         ? [selectedModel]
-        : [
-            "voxcpm2",
-            "indextts2-5",
-            "fun-cosyvoice3-0.5b",
-            "qwen3-tts",
-            "zonos3-mini",
-          ];
+        : ["voxcpm2", "indextts2-5", "fun-cosyvoice3-0.5b", "qwen3-tts"];
       for (const modelId of modelIds) {
         const command = {
           type: "generate",

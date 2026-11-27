@@ -24,9 +24,6 @@ const workerFiles = [
   "qwen3-tts/worker/server.py",
   "qwen3-tts/worker/qwen3_backend.py",
   "qwen3-tts/model-manifest.json",
-  "zonos3-mini/worker/server.py",
-  "zonos3-mini/worker/zonos3_backend.py",
-  "zonos3-mini/model-manifest.json",
 ] as const;
 
 const prepareWorkerFiles = async (root: string) => {

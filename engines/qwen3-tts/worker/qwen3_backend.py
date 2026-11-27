@@ -31,7 +31,7 @@ class Qwen3Backend:
             )
         return {"device": self.device}
 
-    def render(self, text, audio, reference_text, language, _speed, seed, output) -> bool:
+    def render(self, text, audio, reference_text, language, seed, output) -> None:
         import soundfile as sf
         import torch
 
@@ -55,4 +55,3 @@ class Qwen3Backend:
             return wav, sample_rate, len(wav) >= sample_rate * 119.5
 
         render_script(text, output, generate)
-        return False

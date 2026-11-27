@@ -26,7 +26,6 @@ export const MODEL_DATA_FOLDERS = [
   "fun-cosyvoice3",
   "indextts2-5",
   "qwen3-tts",
-  "zonos3-mini",
 ] as const;
 
 export interface ModelLibraryMoveResult {
@@ -97,7 +96,6 @@ const writeGuide = (root: string): void => {
       "fun-cosyvoice3   Fun-CosyVoice3（更多中文方言）",
       "indextts2-5      IndexTTS-2.5（情绪与发音控制）",
       "qwen3-tts       Qwen3-TTS 1.7B Base（参考录音克隆）",
-      "zonos3-mini     ZONOS3-Mini（参考录音克隆与语速控制）",
       "",
       "每个模型内的 runtime、sources、weights 是一套完整环境，请不要拆开。",
       "程序升级不会删除本目录。需要释放空间时，退出声作后删除整个模型文件夹。",
